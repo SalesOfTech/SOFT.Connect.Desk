@@ -2,10 +2,8 @@
 version: 1
 script:
  - rm -rf ./AppDir || true
- - bsdtar -zxvf soft-connect-desk.deb
- - tar -xvf ./data.tar.xz
- - mkdir ./AppDir
- - mv ./usr ./AppDir/usr
+ - mkdir -p ./AppDir
+ - dpkg-deb -x soft-connect-desk.deb ./AppDir
  # 32x32 icon
  - for i in {32,64,128}; do mkdir -p ./AppDir/usr/share/icons/hicolor/$i\x$i/apps/; cp ../res/$i\x$i.png ./AppDir/usr/share/icons/hicolor/$i\x$i/apps/soft-connect-desk.png; done
  - mkdir -p ./AppDir/usr/share/icons/hicolor/scalable/apps/; cp ../res/scalable.svg ./AppDir/usr/share/icons/hicolor/scalable/apps/soft-connect-desk.svg
