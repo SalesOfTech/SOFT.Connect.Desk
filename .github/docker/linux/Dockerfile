@@ -15,7 +15,7 @@ RUN apt-get update \
         libgtk-3-dev liblzma-dev libpam0g-dev libpulse-dev libssl-dev libtool \
         libsystemd-dev libva-dev libxcb-randr0-dev libxcb-shape0-dev \
         libxcb-xfixes0-dev libxdo-dev libxfixes-dev nasm ninja-build \
-        patchelf pkg-config python3 python3-pip rpm unzip wget xz-utils zip \
+        patchelf pkg-config python3 python3-pip rpm squashfs-tools unzip wget xz-utils zip \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \

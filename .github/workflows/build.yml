@@ -361,6 +361,8 @@ jobs:
             ${{ runner.temp }}/soft-connect-linux-build/downloads
             ${{ runner.temp }}/soft-connect-linux-build/vcpkg-installed
           key: soft-connect-linux-x64-v1-${{ hashFiles('Cargo.lock', 'vcpkg.json', '.github/docker/linux/Dockerfile') }}
+          restore-keys: |
+            soft-connect-linux-x64-v1-
 
       - name: Build Linux clients
         shell: bash
@@ -433,6 +435,8 @@ jobs:
             ${{ runner.temp }}/soft-connect-linux-arm64-build/downloads
             ${{ runner.temp }}/soft-connect-linux-arm64-build/vcpkg-installed
           key: soft-connect-linux-arm64-v1-${{ hashFiles('Cargo.lock', 'vcpkg.json', '.github/docker/linux/Dockerfile') }}
+          restore-keys: |
+            soft-connect-linux-arm64-v1-
 
       - name: Build Linux ARM64 clients
         shell: bash
