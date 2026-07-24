@@ -79,6 +79,8 @@ Import-Vs2022Environment
 
 $env:CARGO_TARGET_DIR = $cargoTarget
 $env:CARGO_INCREMENTAL = "0"
+$env:VCPKG_ROOT = $vcpkgRoot
+$env:VCPKG_INSTALLED_ROOT = Join-Path $vcpkgRoot "installed"
 $env:VCPKG_DEFAULT_TRIPLET = $vcpkgTriplet
 $env:VCPKG_DEFAULT_HOST_TRIPLET = $vcpkgTriplet
 $env:LIBCLANG_PATH = $llvmBin
