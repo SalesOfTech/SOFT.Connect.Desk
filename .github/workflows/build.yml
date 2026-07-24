@@ -352,6 +352,16 @@ jobs:
           name: bridge
           path: .
 
+      - name: Restore Linux build cache
+        id: linux-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ${{ runner.temp }}/soft-connect-linux-build/cargo-target
+            ${{ runner.temp }}/soft-connect-linux-build/downloads
+            ${{ runner.temp }}/soft-connect-linux-build/vcpkg-installed
+          key: soft-connect-linux-x64-v1-${{ hashFiles('Cargo.lock', 'vcpkg.json', '.github/docker/linux/Dockerfile') }}
+
       - name: Build Linux clients
         shell: bash
         run: |
@@ -373,6 +383,16 @@ jobs:
               --mount "type=bind,source=${GITHUB_WORKSPACE}/dist/linux,target=/out" \
               "soft-connect-desk-linux-builder:${GITHUB_SHA}"
           done
+
+      - name: Save Linux build cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ${{ runner.temp }}/soft-connect-linux-build/cargo-target
+            ${{ runner.temp }}/soft-connect-linux-build/downloads
+            ${{ runner.temp }}/soft-connect-linux-build/vcpkg-installed
+          key: ${{ steps.linux-cache.outputs.cache-primary-key }}
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -404,6 +424,16 @@ jobs:
           name: bridge
           path: .
 
+      - name: Restore Linux ARM64 build cache
+        id: linux-arm64-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ${{ runner.temp }}/soft-connect-linux-arm64-build/cargo-target
+            ${{ runner.temp }}/soft-connect-linux-arm64-build/downloads
+            ${{ runner.temp }}/soft-connect-linux-arm64-build/vcpkg-installed
+          key: soft-connect-linux-arm64-v1-${{ hashFiles('Cargo.lock', 'vcpkg.json', '.github/docker/linux/Dockerfile') }}
+
       - name: Build Linux ARM64 clients
         shell: bash
         run: |
@@ -426,6 +456,16 @@ jobs:
               --mount "type=bind,source=${GITHUB_WORKSPACE}/dist/linux,target=/out" \
               "soft-connect-desk-linux-arm64-builder:${GITHUB_SHA}"
           done
+
+      - name: Save Linux ARM64 build cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ${{ runner.temp }}/soft-connect-linux-arm64-build/cargo-target
+            ${{ runner.temp }}/soft-connect-linux-arm64-build/downloads
+            ${{ runner.temp }}/soft-connect-linux-arm64-build/vcpkg-installed
+          key: ${{ steps.linux-arm64-cache.outputs.cache-primary-key }}
 
       - name: Upload Linux ARM64 artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
