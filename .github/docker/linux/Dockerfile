@@ -1,6 +1,7 @@
 FROM ubuntu:22.04
 
 ARG DEBIAN_FRONTEND=noninteractive
+ARG TARGETARCH
 ARG RUST_VERSION=1.75.0
 ARG FLUTTER_VERSION=3.24.5
 ARG VCPKG_COMMIT=120deac3062162151622ca4860575a33844ba10b
@@ -30,9 +31,21 @@ RUN wget -q \
         -O /tmp/flutter.tar.xz \
     && tar -xf /tmp/flutter.tar.xz -C /opt \
     && rm -f /tmp/flutter.tar.xz \
-    && git config --global --add safe.directory /opt/flutter \
-    && /opt/flutter/bin/flutter config --enable-linux-desktop \
-    && /opt/flutter/bin/flutter precache --linux
+    && if [ "${TARGETARCH}" = "arm64" ]; then \
+        git clone https://github.com/sony/flutter-elinux.git /opt/flutter-elinux \
+        && git -C /opt/flutter-elinux reset --hard "${FLUTTER_VERSION}" \
+        && git config --global --add safe.directory /opt/flutter-elinux/flutter \
+        && /opt/flutter-elinux/bin/flutter-elinux doctor -v \
+        && /opt/flutter-elinux/bin/flutter-elinux precache --linux \
+        && mkdir -p /opt/flutter-elinux/flutter/bin/cache/artifacts/engine/linux-arm64 \
+        && cp -R /opt/flutter/bin/cache/artifacts/engine/linux-x64/shader_lib \
+          /opt/flutter-elinux/flutter/bin/cache/artifacts/engine/linux-arm64/ \
+        && rm -rf /opt/flutter; \
+      else \
+        git config --global --add safe.directory /opt/flutter \
+        && /opt/flutter/bin/flutter config --enable-linux-desktop \
+        && /opt/flutter/bin/flutter precache --linux; \
+      fi
 
 RUN python3 -m pip install --no-cache-dir "setuptools_scm<10" \
     && python3 -m pip install --no-cache-dir \
@@ -41,7 +54,7 @@ RUN python3 -m pip install --no-cache-dir "setuptools_scm<10" \
 COPY build.sh /usr/local/bin/build-soft-connect-desk-linux
 RUN chmod 0755 /usr/local/bin/build-soft-connect-desk-linux
 
-ENV PATH="/root/.cargo/bin:/opt/flutter/bin:${PATH}"
+ENV PATH="/root/.cargo/bin:/opt/flutter/bin:/opt/flutter-elinux/bin:${PATH}"
 ENV VCPKG_ROOT=/opt/vcpkg
 ENV LIBCLANG_PATH=/usr/lib/llvm-14/lib
 

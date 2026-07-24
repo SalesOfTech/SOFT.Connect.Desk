@@ -381,6 +381,59 @@ jobs:
           retention-days: 14
           path: dist/linux
 
+  linux-arm64:
+    name: Linux ARM64
+    needs: bridge
+    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'linux'
+    runs-on: ubuntu-22.04-arm
+    steps:
+      - name: Free runner disk space
+        run: |
+          sudo rm -rf /opt/ghc /usr/local/lib/android /usr/share/dotnet
+          docker system prune --all --force
+          df -h
+
+      - name: Checkout source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          submodules: recursive
+
+      - name: Restore bridge
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: bridge
+          path: .
+
+      - name: Build Linux ARM64 clients
+        shell: bash
+        run: |
+          docker build \
+            --build-arg TARGETARCH=arm64 \
+            --tag soft-connect-desk-linux-arm64-builder:${GITHUB_SHA} \
+            .github/docker/linux
+          mkdir -p "${RUNNER_TEMP}/soft-connect-linux-arm64-build" "${GITHUB_WORKSPACE}/dist/linux"
+          case "${BUILD_ROLE}" in
+            support) roles=(support) ;;
+            operator) roles=(operator) ;;
+            all) roles=(support operator) ;;
+            *) echo "Unknown role: ${BUILD_ROLE}" >&2; exit 2 ;;
+          esac
+          for role in "${roles[@]}"; do
+            docker run --rm \
+              --env "ROLE=${role}" \
+              --mount "type=bind,source=${GITHUB_WORKSPACE},target=/workspace" \
+              --mount "type=bind,source=${RUNNER_TEMP}/soft-connect-linux-arm64-build,target=/build" \
+              --mount "type=bind,source=${GITHUB_WORKSPACE}/dist/linux,target=/out" \
+              "soft-connect-desk-linux-arm64-builder:${GITHUB_SHA}"
+          done
+
+      - name: Upload Linux ARM64 artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: SOFT.Connect.Desk-Linux-ARM64-${{ env.BUILD_ROLE }}
+          retention-days: 14
+          path: dist/linux
+
   flatpak:
     name: Linux Flatpak x64
     needs:
@@ -446,6 +499,72 @@ jobs:
           path: |
             dist/linux/*.flatpak
             dist/linux/SHA256SUMS-Flatpak.txt
+
+  flatpak-arm64:
+    name: Linux Flatpak ARM64
+    needs:
+      - bridge
+      - linux-arm64
+    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'linux'
+    runs-on: ubuntu-22.04-arm
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          submodules: recursive
+
+      - name: Download Linux ARM64 packages
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: SOFT.Connect.Desk-Linux-ARM64-${{ env.BUILD_ROLE }}
+          path: dist/linux
+
+      - name: Install Flatpak builder
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder libarchive-tools
+          flatpak --user remote-add --if-not-exists flathub \
+            https://dl.flathub.org/repo/flathub.flatpakrepo
+          git clone https://github.com/flathub/shared-modules.git flatpak/shared-modules --depth=1
+
+      - name: Build Flatpak ARM64 packages
+        shell: bash
+        run: |
+          case "${BUILD_ROLE}" in
+            support) roles=(Support) ;;
+            operator) roles=(Operator) ;;
+            all) roles=(Support Operator) ;;
+            *) echo "Unknown role: ${BUILD_ROLE}" >&2; exit 2 ;;
+          esac
+          for role in "${roles[@]}"; do
+            cp "dist/linux/SOFT.Connect.Desk-${role}-linux-aarch64.deb" \
+              flatpak/soft-connect-desk.deb
+            rm -rf flatpak/build flatpak/repo
+            flatpak-builder \
+              --user \
+              --install-deps-from=flathub \
+              -y \
+              --force-clean \
+              --repo=flatpak/repo \
+              flatpak/build \
+              flatpak/soft-connect-desk.json
+            flatpak build-bundle \
+              flatpak/repo \
+              "dist/linux/SOFT.Connect.Desk-${role}-linux-aarch64.flatpak" \
+              tech.salesof.SoftConnectDesk
+          done
+          cd dist/linux
+          sha256sum ./*.flatpak > SHA256SUMS-Flatpak-ARM64.txt
+
+      - name: Upload Flatpak ARM64 artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: SOFT.Connect.Desk-Flatpak-ARM64-${{ env.BUILD_ROLE }}
+          retention-days: 14
+          path: |
+            dist/linux/*.flatpak
+            dist/linux/SHA256SUMS-Flatpak-ARM64.txt
 
   archlinux:
     name: Arch Linux x64
