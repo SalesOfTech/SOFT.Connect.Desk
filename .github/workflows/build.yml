@@ -42,8 +42,16 @@ env:
 
 jobs:
   bridge:
-    name: Generate Flutter bridge
+    name: Generate Flutter bridge ${{ matrix.flutter_version }}
     runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - flutter_version: "3.22.3"
+            artifact: bridge
+          - flutter_version: "3.44.0"
+            artifact: bridge-windows-arm64
     steps:
       - name: Checkout source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -70,7 +78,7 @@ jobs:
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
         with:
           channel: stable
-          flutter-version: ${{ env.BRIDGE_FLUTTER_VERSION }}
+          flutter-version: ${{ matrix.flutter_version }}
           cache: true
 
       - name: Generate bridge
@@ -78,7 +86,11 @@ jobs:
         run: |
           cargo install cargo-expand --version 1.0.95 --locked
           cargo install flutter_rust_bridge_codegen --version 1.80.1 --features uuid --locked
-          sed -i -e 's/extended_text: 14.0.0/extended_text: 13.0.0/g' flutter/pubspec.yaml
+          if [[ "${{ matrix.flutter_version }}" == "3.22.3" ]]; then
+            sed -i -e 's/extended_text: 14.0.0/extended_text: 13.0.0/g' flutter/pubspec.yaml
+          else
+            bash .github/patches/apply_flutter_3.44_source_patches.sh
+          fi
           pushd flutter
           flutter pub get
           popd
@@ -90,7 +102,7 @@ jobs:
       - name: Upload bridge
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: bridge
+          name: ${{ matrix.artifact }}
           retention-days: 7
           path: |
             src/bridge_generated.rs
@@ -193,10 +205,127 @@ jobs:
           CARGO_TARGET_DIR: ${{ runner.temp }}\soft-connect-cargo-target
         run: .github/scripts/build-windows.ps1 -Role $env:BUILD_ROLE
 
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce
+
+      - name: Build Windows MSI packages
+        shell: pwsh
+        run: .github/scripts/build-windows-msi.ps1 -Role $env:BUILD_ROLE -Platform x64
+
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: SOFT.Connect.Desk-Windows-${{ env.BUILD_ROLE }}
+          retention-days: 14
+          path: dist/windows
+
+  windows-arm64:
+    name: Windows ARM64
+    needs: bridge
+    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'windows'
+    runs-on: windows-11-arm
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          submodules: recursive
+
+      - name: Restore ARM64 bridge
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: bridge-windows-arm64
+          path: .
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install LLVM
+        uses: KyleMayes/install-llvm-action@ebc0426251bc40c7cd31162802432c68818ab8f0
+        with:
+          version: "15.0.6"
+
+      - name: Install Flutter 3.44
+        id: flutter-arm64
+        uses: subosito/flutter-action@2783a3f08e1baf891508463f8c6653c258246225
+        with:
+          channel: stable
+          flutter-version: "3.44.0"
+          architecture: x64
+
+      - name: Activate native ARM64 Dart and Flutter engine
+        shell: pwsh
+        run: |
+          $flutterRoot = "${{ steps.flutter-arm64.outputs['CACHE-PATH'] }}"
+          Remove-Item -Force "$flutterRoot\bin\cache\engine-dart-sdk.stamp" -ErrorAction SilentlyContinue
+          & "$flutterRoot\bin\internal\update_dart_sdk.ps1"
+          & "$flutterRoot\bin\flutter.bat" precache --windows
+          $dartVersion = & "$flutterRoot\bin\dart.bat" --version 2>&1 | Out-String
+          Write-Host $dartVersion
+          if ($dartVersion -notmatch "windows_arm64") {
+            throw "Expected native windows_arm64 Dart SDK"
+          }
+
+      - name: Patch sources for Flutter 3.44
+        shell: bash
+        run: bash .github/patches/apply_flutter_3.44_source_patches.sh
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: aarch64-pc-windows-msvc
+          components: rustfmt
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          prefix-key: soft-connect-windows-arm64
+
+      - name: Export GitHub cache variables
+        uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2
+        with:
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT }}
+          doNotCache: false
+
+      - name: Install native ARM64 dependencies
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_ROOT\vcpkg.exe" install `
+            --triplet=arm64-windows-static `
+            --host-triplet=arm64-windows-static `
+            "--x-install-root=$env:VCPKG_ROOT\installed"
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+          "SODIUM_LIB_DIR=$env:VCPKG_ROOT\installed\arm64-windows-static\lib" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build Windows ARM64 clients
+        shell: pwsh
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}\soft-connect-cargo-target
+        run: .github/scripts/build-windows.ps1 -Role $env:BUILD_ROLE -Architecture arm64
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce
+
+      - name: Build Windows ARM64 MSI packages
+        shell: pwsh
+        run: .github/scripts/build-windows-msi.ps1 -Role $env:BUILD_ROLE -Platform ARM64
+
+      - name: Upload Windows ARM64 artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: SOFT.Connect.Desk-Windows-ARM64-${{ env.BUILD_ROLE }}
           retention-days: 14
           path: dist/windows
 

@@ -1,6 +1,8 @@
 param(
     [ValidateSet("all", "support", "operator")]
-    [string]$Role = "support"
+    [string]$Role = "support",
+    [ValidateSet("x64", "arm64")]
+    [string]$Architecture = "x64"
 )
 
 $ErrorActionPreference = "Stop"
@@ -14,6 +16,18 @@ else {
     Join-Path $env:RUNNER_TEMP "soft-connect-cargo-target"
 }
 $vcpkgRoot = $env:VCPKG_ROOT
+$targetTriple = if ($Architecture -eq "arm64") {
+    "aarch64-pc-windows-msvc"
+}
+else {
+    "x86_64-pc-windows-msvc"
+}
+$vcpkgTriplet = if ($Architecture -eq "arm64") {
+    "arm64-windows-static"
+}
+else {
+    "x64-windows-static"
+}
 
 if (-not $vcpkgRoot) {
     throw "VCPKG_ROOT is not set"
@@ -41,7 +55,14 @@ function Import-Vs2022Environment {
     }
 
     $env:VSCMD_SKIP_SENDTELEMETRY = "1"
-    $lines = & "$env:SystemRoot\System32\cmd.exe" /s /c "`"$vsDevCmd`" -arch=x64 -host_arch=x64 >nul && set"
+    $vsArch = if ($Architecture -eq "arm64") { "arm64" } else { "x64" }
+    $hostArch = if ($Architecture -eq "arm64" -and $env:PROCESSOR_ARCHITECTURE -eq "ARM64") {
+        "arm64"
+    }
+    else {
+        "x64"
+    }
+    $lines = & "$env:SystemRoot\System32\cmd.exe" /s /c "`"$vsDevCmd`" -arch=$vsArch -host_arch=$hostArch >nul && set"
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to initialize Visual Studio 2022"
     }
@@ -58,16 +79,32 @@ Import-Vs2022Environment
 
 $env:CARGO_TARGET_DIR = $cargoTarget
 $env:CARGO_INCREMENTAL = "0"
-$env:VCPKG_DEFAULT_TRIPLET = "x64-windows-static"
-$env:VCPKG_DEFAULT_HOST_TRIPLET = "x64-windows-static"
+$env:VCPKG_DEFAULT_TRIPLET = $vcpkgTriplet
+$env:VCPKG_DEFAULT_HOST_TRIPLET = $vcpkgTriplet
 $env:LIBCLANG_PATH = $llvmBin
 $env:LLVM_CONFIG_PATH = Join-Path $llvmBin "llvm-config.exe"
 $env:LLVMInstallDir = Split-Path -Parent $llvmBin
 $env:PATH = @($llvmBin, (Join-Path $env:USERPROFILE ".cargo\bin"), $env:PATH) -join ";"
 
-$msvcCompiler = Join-Path $env:VCToolsInstallDir "bin\Hostx64\x64\cl.exe"
-$env:CC_x86_64_pc_windows_msvc = $msvcCompiler
-$env:CXX_x86_64_pc_windows_msvc = $msvcCompiler
+$hostFolder = if ($Architecture -eq "arm64" -and $env:PROCESSOR_ARCHITECTURE -eq "ARM64") {
+    "Hostarm64"
+}
+else {
+    "Hostx64"
+}
+$targetFolder = if ($Architecture -eq "arm64") { "arm64" } else { "x64" }
+$msvcCompiler = Join-Path $env:VCToolsInstallDir "bin\$hostFolder\$targetFolder\cl.exe"
+if (-not (Test-Path -LiteralPath $msvcCompiler)) {
+    $msvcCompiler = Join-Path $env:VCToolsInstallDir "bin\Hostx64\$targetFolder\cl.exe"
+}
+if ($Architecture -eq "arm64") {
+    $env:CC_aarch64_pc_windows_msvc = $msvcCompiler
+    $env:CXX_aarch64_pc_windows_msvc = $msvcCompiler
+}
+else {
+    $env:CC_x86_64_pc_windows_msvc = $msvcCompiler
+    $env:CXX_x86_64_pc_windows_msvc = $msvcCompiler
+}
 
 $vcpkgInstalled = Join-Path $vcpkgRoot "installed"
 if (-not (Test-Path -LiteralPath $vcpkgInstalled)) {
@@ -105,13 +142,18 @@ function Build-Role {
 
     Push-Location $sourceRoot
     try {
-        $features = "flutter,hwcodec,vram,$Feature"
-        & $cargo +1.75.0 build --locked --features $features --lib --release
+        $features = if ($Architecture -eq "arm64") {
+            "flutter,hwcodec,$Feature"
+        }
+        else {
+            "flutter,hwcodec,vram,$Feature"
+        }
+        & $cargo +1.75.0 build --locked --target $targetTriple --features $features --lib --release
         if ($LASTEXITCODE -ne 0) {
             throw "Cargo build failed for $RoleName"
         }
 
-        $coreDll = Join-Path $cargoTarget "release\librustdesk.dll"
+        $coreDll = Join-Path $cargoTarget "$targetTriple\release\librustdesk.dll"
         if (-not (Test-Path -LiteralPath $coreDll)) {
             throw "Cargo core DLL not found: $coreDll"
         }
@@ -131,10 +173,10 @@ function Build-Role {
             Pop-Location
         }
 
-        $flutterBundle = Join-Path $sourceRoot "flutter\build\windows\x64\runner\Release"
+        $flutterBundle = Join-Path $sourceRoot "flutter\build\windows\$Architecture\runner\Release"
         Copy-Item -LiteralPath $flutterBundle -Destination $bundleRoot -Recurse
 
-        $virtualDisplay = Join-Path $cargoTarget "release\deps\dylib_virtual_display.dll"
+        $virtualDisplay = Join-Path $cargoTarget "$targetTriple\release\deps\dylib_virtual_display.dll"
         if (Test-Path -LiteralPath $virtualDisplay) {
             Copy-Item -LiteralPath $virtualDisplay -Destination $bundleRoot -Force
         }
@@ -152,12 +194,12 @@ function Build-Role {
         }
 
         & $python (Join-Path $portableDir "generate.py") `
-            -f $bundleRoot -o $portableDir -e $innerExe
+            -f $bundleRoot -o $portableDir -e $innerExe -t $targetTriple
         if ($LASTEXITCODE -ne 0) {
             throw "Portable packer failed for $RoleName"
         }
 
-        $packer = Join-Path $cargoTarget "release\rustdesk-portable-packer.exe"
+        $packer = Join-Path $cargoTarget "$targetTriple\release\rustdesk-portable-packer.exe"
         if (-not (Test-Path -LiteralPath $packer)) {
             throw "Portable packer executable not found: $packer"
         }
@@ -170,19 +212,43 @@ function Build-Role {
 }
 
 if ($Role -in @("all", "support")) {
+    $supportPortable = if ($Architecture -eq "arm64") {
+        "SOFT.Connect.Desk-Support-arm64-QS.exe"
+    }
+    else {
+        "SOFT.Connect.Desk-Support-QS.exe"
+    }
+    $supportInstaller = if ($Architecture -eq "arm64") {
+        "SOFT.Connect.Desk-Support-arm64-install.exe"
+    }
+    else {
+        "SOFT.Connect.Desk-Support-install.exe"
+    }
     Build-Role `
         -RoleName "Support" `
         -Feature "soft-connect-support" `
-        -PortableName "SOFT.Connect.Desk-Support-QS.exe" `
-        -InstallerName "SOFT.Connect.Desk-Support-install.exe"
+        -PortableName $supportPortable `
+        -InstallerName $supportInstaller
 }
 
 if ($Role -in @("all", "operator")) {
+    $operatorPortable = if ($Architecture -eq "arm64") {
+        "SOFT.Connect.Desk-Operator-arm64-Portable.exe"
+    }
+    else {
+        "SOFT.Connect.Desk-Operator-Portable.exe"
+    }
+    $operatorInstaller = if ($Architecture -eq "arm64") {
+        "SOFT.Connect.Desk-Operator-arm64-install.exe"
+    }
+    else {
+        "SOFT.Connect.Desk-Operator-install.exe"
+    }
     Build-Role `
         -RoleName "Operator" `
         -Feature "soft-connect-operator" `
-        -PortableName "SOFT.Connect.Desk-Operator-Portable.exe" `
-        -InstallerName "SOFT.Connect.Desk-Operator-install.exe"
+        -PortableName $operatorPortable `
+        -InstallerName $operatorInstaller
 }
 
 $hashRows = Get-ChildItem -LiteralPath $distRoot -Recurse -Filter "*.exe" |
