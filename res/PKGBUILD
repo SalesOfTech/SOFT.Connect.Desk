@@ -1,35 +1,29 @@
-pkgname=rustdesk
+pkgname=soft-connect-desk
 pkgver=1.4.9
-pkgrel=0
-epoch=
-pkgdesc=""
+pkgrel=1
+pkgdesc="SOFT.Connect.Desk self-hosted remote support client"
 arch=('x86_64')
-url=""
-license=('AGPL-3.0')
-groups=()
+url="https://connect.salesof.tech"
+license=('AGPL-3.0-only')
 depends=('gtk3' 'xdotool' 'libxcb' 'libxfixes' 'alsa-lib' 'libva' 'libappindicator-gtk3' 'pam' 'gst-plugins-base' 'gst-plugin-pipewire')
-makedepends=()
-checkdepends=()
-optdepends=()
-provides=()
-conflicts=()
-replaces=()
-backup=()
-options=()
-install=pacman_install
-changelog=
-noextract=()
-md5sums=() #generate with 'makepkg -g'
+install=soft-connect-desk.install
+options=(!strip)
 
 package() {
-  if [[ ${FLUTTER} ]]; then
-	  mkdir -p "${pkgdir}/usr/share/rustdesk" && cp -r ${HBB}/flutter/build/linux/x64/release/bundle/* -t "${pkgdir}/usr/share/rustdesk"
-  fi
+  : "${SOFT_CONNECT_BUNDLE:?SOFT_CONNECT_BUNDLE is required}"
+  mkdir -p "${pkgdir}/usr/share/soft-connect-desk"
+  tar -xzf "${SOFT_CONNECT_BUNDLE}" \
+    -C "${pkgdir}/usr/share/soft-connect-desk" \
+    --strip-components=1
   mkdir -p "${pkgdir}/usr/bin"
-  pushd ${pkgdir} && ln -s /usr/share/rustdesk/rustdesk usr/bin/rustdesk && popd
-  install -Dm 644 $HBB/res/rustdesk.service -t "${pkgdir}/usr/share/rustdesk/files"
-  install -Dm 644 $HBB/res/rustdesk.desktop -t "${pkgdir}/usr/share/rustdesk/files"
-  install -Dm 644 $HBB/res/rustdesk-link.desktop -t "${pkgdir}/usr/share/rustdesk/files"
-  install -Dm 644 $HBB/res/128x128@2x.png "${pkgdir}/usr/share/icons/hicolor/256x256/apps/rustdesk.png"
-  install -Dm 644 $HBB/res/scalable.svg "${pkgdir}/usr/share/icons/hicolor/scalable/apps/rustdesk.svg"
+  ln -s /usr/share/soft-connect-desk/soft-connect-desk \
+    "${pkgdir}/usr/bin/soft-connect-desk"
+  install -Dm 644 "${HBB}/res/rustdesk.service" \
+    "${pkgdir}/usr/lib/systemd/system/soft-connect-desk.service"
+  install -Dm 644 "${HBB}/res/rustdesk.desktop" \
+    "${pkgdir}/usr/share/applications/soft-connect-desk.desktop"
+  install -Dm 644 "${HBB}/res/rustdesk-link.desktop" \
+    "${pkgdir}/usr/share/applications/soft-connect-desk-link.desktop"
+  install -Dm 644 "${HBB}/res/icon.png" \
+    "${pkgdir}/usr/share/icons/hicolor/1024x1024/apps/soft-connect-desk.png"
 }

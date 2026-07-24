@@ -381,6 +381,123 @@ jobs:
           retention-days: 14
           path: dist/linux
 
+  flatpak:
+    name: Linux Flatpak x64
+    needs:
+      - bridge
+      - linux
+    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'linux'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          submodules: recursive
+
+      - name: Download Linux packages
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: SOFT.Connect.Desk-Linux-${{ env.BUILD_ROLE }}
+          path: dist/linux
+
+      - name: Install Flatpak builder
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder libarchive-tools
+          flatpak --user remote-add --if-not-exists flathub \
+            https://dl.flathub.org/repo/flathub.flatpakrepo
+          git clone https://github.com/flathub/shared-modules.git flatpak/shared-modules --depth=1
+
+      - name: Build Flatpak packages
+        shell: bash
+        run: |
+          case "${BUILD_ROLE}" in
+            support) roles=(Support) ;;
+            operator) roles=(Operator) ;;
+            all) roles=(Support Operator) ;;
+            *) echo "Unknown role: ${BUILD_ROLE}" >&2; exit 2 ;;
+          esac
+          for role in "${roles[@]}"; do
+            cp "dist/linux/SOFT.Connect.Desk-${role}-linux-x64.deb" \
+              flatpak/soft-connect-desk.deb
+            rm -rf flatpak/build flatpak/repo
+            flatpak-builder \
+              --user \
+              --install-deps-from=flathub \
+              -y \
+              --force-clean \
+              --repo=flatpak/repo \
+              flatpak/build \
+              flatpak/soft-connect-desk.json
+            flatpak build-bundle \
+              flatpak/repo \
+              "dist/linux/SOFT.Connect.Desk-${role}-linux-x64.flatpak" \
+              tech.salesof.SoftConnectDesk
+          done
+          cd dist/linux
+          sha256sum ./*.flatpak > SHA256SUMS-Flatpak.txt
+
+      - name: Upload Flatpak artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: SOFT.Connect.Desk-Flatpak-${{ env.BUILD_ROLE }}
+          retention-days: 14
+          path: |
+            dist/linux/*.flatpak
+            dist/linux/SHA256SUMS-Flatpak.txt
+
+  archlinux:
+    name: Arch Linux x64
+    needs:
+      - bridge
+      - linux
+    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'linux'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          submodules: recursive
+
+      - name: Download Linux packages
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: SOFT.Connect.Desk-Linux-${{ env.BUILD_ROLE }}
+          path: dist/linux
+
+      - name: Build Arch Linux packages
+        uses: rustdesk-org/arch-makepkg-action@04200739ed1d0bf6f2188b6736b26a767c57a7f9
+        with:
+          packages:
+          scripts: |
+            case "${BUILD_ROLE}" in
+              support) roles=(Support) ;;
+              operator) roles=(Operator) ;;
+              all) roles=(Support Operator) ;;
+              *) echo "Unknown role: ${BUILD_ROLE}" >&2; exit 2 ;;
+            esac
+            workspace="$(pwd)"
+            for role in "${roles[@]}"; do
+              bundle="$(realpath "dist/linux/SOFT.Connect.Desk-${role}-linux-x64-bundle.tar.gz")"
+              pushd res
+              HBB="${workspace}" SOFT_CONNECT_BUNDLE="${bundle}" makepkg -f --noconfirm
+              package="$(find . -maxdepth 1 -name 'soft-connect-desk-*.pkg.tar.zst' -print -quit)"
+              mv "${package}" "../dist/linux/SOFT.Connect.Desk-${role}-linux-x64.pkg.tar.zst"
+              popd
+            done
+            cd dist/linux
+            sha256sum ./*.pkg.tar.zst > SHA256SUMS-ArchLinux.txt
+
+      - name: Upload Arch Linux artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: SOFT.Connect.Desk-ArchLinux-${{ env.BUILD_ROLE }}
+          retention-days: 14
+          path: |
+            dist/linux/*.pkg.tar.zst
+            dist/linux/SHA256SUMS-ArchLinux.txt
+
   macos:
     name: macOS ${{ matrix.arch }}
     needs: bridge

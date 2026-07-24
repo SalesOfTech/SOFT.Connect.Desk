@@ -1,98 +1,53 @@
-Name:       rustdesk
+Name:       soft-connect-desk
 Version:    1.4.9
-Release:    0
-Summary:    RPM package
-License:    GPL-3.0
-URL:        https://rustdesk.com
-Vendor:     rustdesk <info@rustdesk.com>
+Release:    1
+Summary:    SOFT.Connect.Desk remote support client
+License:    AGPL-3.0-only
+URL:        https://connect.salesof.tech
+Vendor:     Sales Of Tech
 Requires:   gtk3 libxcb libXfixes alsa-lib libva pam gstreamer1-plugins-base
 Recommends: libayatana-appindicator-gtk3 libxdo
-Provides:   libdesktop_drop_plugin.so()(64bit), libdesktop_multi_window_plugin.so()(64bit), libfile_selector_linux_plugin.so()(64bit), libflutter_custom_cursor_plugin.so()(64bit), libflutter_linux_gtk.so()(64bit), libscreen_retriever_plugin.so()(64bit), libtray_manager_plugin.so()(64bit), liburl_launcher_linux_plugin.so()(64bit), libwindow_manager_plugin.so()(64bit), libwindow_size_plugin.so()(64bit), libtexture_rgba_renderer_plugin.so()(64bit)
-
-# https://docs.fedoraproject.org/en-US/packaging-guidelines/Scriptlets/
 
 %description
-The best open-source remote desktop client software, written in Rust.
+SOFT.Connect.Desk self-hosted remote support client by Sales Of Tech.
 
 %prep
-# we have no source, so nothing here
 
 %build
-# we have no source, so nothing here
-
-# %global __python %{__python3}
 
 %install
-
-mkdir -p "%{buildroot}/usr/share/rustdesk" && cp -r ${HBB}/flutter/build/linux/x64/release/bundle/* -t "%{buildroot}/usr/share/rustdesk"
+mkdir -p "%{buildroot}/usr/share/soft-connect-desk"
+cp -r ${HBB}/flutter/build/linux/x64/release/bundle/* "%{buildroot}/usr/share/soft-connect-desk/"
 mkdir -p "%{buildroot}/usr/bin"
-install -Dm 644 $HBB/res/rustdesk.service -t "%{buildroot}/usr/share/rustdesk/files"
-install -Dm 644 $HBB/res/rustdesk.desktop -t "%{buildroot}/usr/share/rustdesk/files"
-install -Dm 644 $HBB/res/rustdesk-link.desktop -t "%{buildroot}/usr/share/rustdesk/files"
-install -Dm 644 $HBB/res/128x128@2x.png "%{buildroot}/usr/share/icons/hicolor/256x256/apps/rustdesk.png"
-install -Dm 644 $HBB/res/scalable.svg "%{buildroot}/usr/share/icons/hicolor/scalable/apps/rustdesk.svg"
+ln -s /usr/share/soft-connect-desk/soft-connect-desk "%{buildroot}/usr/bin/soft-connect-desk"
+install -Dm 644 $HBB/res/rustdesk.service "%{buildroot}/usr/lib/systemd/system/soft-connect-desk.service"
+install -Dm 644 $HBB/res/rustdesk.desktop "%{buildroot}/usr/share/applications/soft-connect-desk.desktop"
+install -Dm 644 $HBB/res/rustdesk-link.desktop "%{buildroot}/usr/share/applications/soft-connect-desk-link.desktop"
+install -Dm 644 $HBB/res/icon.png "%{buildroot}/usr/share/icons/hicolor/1024x1024/apps/soft-connect-desk.png"
 
 %files
-/usr/share/rustdesk/*
-/usr/share/rustdesk/files/rustdesk.service
-/usr/share/icons/hicolor/256x256/apps/rustdesk.png
-/usr/share/icons/hicolor/scalable/apps/rustdesk.svg
-/usr/share/rustdesk/files/rustdesk.desktop
-/usr/share/rustdesk/files/rustdesk-link.desktop
-
-%changelog
-# let's skip this for now
-
-%pre
-# can do something for centos7
-case "$1" in
-  1)
-    # for install
-  ;;
-  2)
-    # for upgrade
-    systemctl stop rustdesk || true
-  ;;
-esac
+/usr/share/soft-connect-desk/*
+/usr/bin/soft-connect-desk
+/usr/lib/systemd/system/soft-connect-desk.service
+/usr/share/applications/soft-connect-desk.desktop
+/usr/share/applications/soft-connect-desk-link.desktop
+/usr/share/icons/hicolor/1024x1024/apps/soft-connect-desk.png
 
 %post
-cp /usr/share/rustdesk/files/rustdesk.service /etc/systemd/system/rustdesk.service
-cp /usr/share/rustdesk/files/rustdesk.desktop /usr/share/applications/
-cp /usr/share/rustdesk/files/rustdesk-link.desktop /usr/share/applications/
-ln -sf /usr/share/rustdesk/rustdesk /usr/bin/rustdesk
-systemctl daemon-reload
-systemctl enable rustdesk
-systemctl start rustdesk
-update-desktop-database
+systemctl daemon-reload >/dev/null 2>&1 || true
+systemctl enable soft-connect-desk.service >/dev/null 2>&1 || true
+update-desktop-database >/dev/null 2>&1 || true
 
 %preun
-case "$1" in
-  0)
-    # for uninstall
-    systemctl stop rustdesk || true
-    systemctl disable rustdesk || true
-    rm /etc/systemd/system/rustdesk.service || true
-  ;;
-  1)
-    # for upgrade
-  ;;
-esac
+if [ "$1" -eq 0 ]; then
+  systemctl stop soft-connect-desk.service >/dev/null 2>&1 || true
+  systemctl disable soft-connect-desk.service >/dev/null 2>&1 || true
+fi
 
 %postun
-case "$1" in
-  0)
-    # for uninstall
-    rm /usr/bin/rustdesk || true
-    rmdir /usr/lib/rustdesk || true
-    rmdir /usr/local/rustdesk || true
-    rmdir /usr/share/rustdesk || true
-    rm /usr/share/applications/rustdesk.desktop || true
-    rm /usr/share/applications/rustdesk-link.desktop || true
-    update-desktop-database
-  ;;
-  1)
-    # for upgrade
-    rmdir /usr/lib/rustdesk || true
-    rmdir /usr/local/rustdesk || true
-  ;;
-esac
+systemctl daemon-reload >/dev/null 2>&1 || true
+update-desktop-database >/dev/null 2>&1 || true
+
+%changelog
+* Fri Jul 24 2026 Sales Of Tech <support@salesof.tech> - 1.4.9-1
+- Branded SOFT.Connect.Desk package

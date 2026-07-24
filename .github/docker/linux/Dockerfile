@@ -7,11 +7,11 @@ ARG VCPKG_COMMIT=120deac3062162151622ca4860575a33844ba10b
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        build-essential ca-certificates clang cmake curl desktop-file-utils \
+        autoconf automake build-essential ca-certificates clang cmake curl desktop-file-utils \
         dpkg-dev fakeroot file g++ git libarchive-tools libasound2-dev \
         libayatana-appindicator3-dev libclang-dev libdbus-1-dev libfuse2 \
         libglib2.0-dev libgstreamer-plugins-base1.0-dev libgstreamer1.0-dev \
-        libgtk-3-dev liblzma-dev libpam0g-dev libpulse-dev libssl-dev \
+        libgtk-3-dev liblzma-dev libpam0g-dev libpulse-dev libssl-dev libtool \
         libsystemd-dev libva-dev libxcb-randr0-dev libxcb-shape0-dev \
         libxcb-xfixes0-dev libxdo-dev libxfixes-dev nasm ninja-build \
         patchelf pkg-config python3 python3-pip rpm unzip wget xz-utils zip \

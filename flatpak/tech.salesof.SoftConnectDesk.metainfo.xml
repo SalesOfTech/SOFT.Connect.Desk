@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>tech.salesof.SoftConnectDesk</id>
+  <developer id="tech.salesof">
+    <name>Sales Of Tech</name>
+  </developer>
+  <launchable type="desktop-id">tech.salesof.SoftConnectDesk.desktop</launchable>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>AGPL-3.0-only</project_license>
+  <name>SOFT.Connect.Desk</name>
+  <summary>Self-hosted remote support client</summary>
+  <description>
+    <p>
+      SOFT.Connect.Desk provides remote support through infrastructure operated
+      by Sales Of Tech.
+    </p>
+  </description>
+  <categories>
+    <category>Utility</category>
+    <category>Network</category>
+  </categories>
+  <branding>
+    <color type="primary" scheme_preference="light">#0ccfea</color>
+    <color type="primary" scheme_preference="dark">#03101f</color>
+  </branding>
+  <url type="homepage">https://connect.salesof.tech</url>
+  <url type="vcs-browser">https://github.com/SalesOfTech/SOFT.Connect.Desk</url>
+  <requires>
+    <display_length compare="ge">600</display_length>
+    <internet>always</internet>
+  </requires>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </supports>
+  <content_rating type="oars-1.1"/>
+</component>

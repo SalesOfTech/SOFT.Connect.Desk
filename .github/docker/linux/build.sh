@@ -87,11 +87,37 @@ fi
 appimage_output="${output_root}/SOFT.Connect.Desk-${role_name}-linux-x64.AppImage"
 cp "${appimage_source}" "${appimage_output}"
 
+rm -rf /root/rpmbuild
+HBB="${source_root}" rpmbuild "${source_root}/res/rpm-flutter.spec" -bb
+rpm_source="$(find /root/rpmbuild/RPMS -type f -name 'soft-connect-desk-*.rpm' | head -n 1)"
+if [[ -z "${rpm_source}" ]]; then
+  echo "Fedora RPM was not produced" >&2
+  exit 1
+fi
+rpm_output="${output_root}/SOFT.Connect.Desk-${role_name}-linux-x64.rpm"
+cp "${rpm_source}" "${rpm_output}"
+
+rm -rf /root/rpmbuild
+HBB="${source_root}" rpmbuild "${source_root}/res/rpm-flutter-suse.spec" -bb
+suse_source="$(find /root/rpmbuild/RPMS -type f -name 'soft-connect-desk-*.rpm' | head -n 1)"
+if [[ -z "${suse_source}" ]]; then
+  echo "SUSE RPM was not produced" >&2
+  exit 1
+fi
+suse_output="${output_root}/SOFT.Connect.Desk-${role_name}-linux-x64-suse.rpm"
+cp "${suse_source}" "${suse_output}"
+
+bundle_output="${output_root}/SOFT.Connect.Desk-${role_name}-linux-x64-bundle.tar.gz"
+tar -C "${source_root}/flutter/build/linux/x64/release" -czf "${bundle_output}" bundle
+
 (
   cd "${output_root}"
   sha256sum \
     "$(basename "${deb_output}")" \
     "$(basename "${appimage_output}")" \
+    "$(basename "${rpm_output}")" \
+    "$(basename "${suse_output}")" \
+    "$(basename "${bundle_output}")" \
     > "SHA256SUMS-${role_name}.txt"
 )
 
