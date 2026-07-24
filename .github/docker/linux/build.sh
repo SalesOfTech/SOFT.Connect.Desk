@@ -82,7 +82,7 @@ cargo +1.75.0 build \
 
 mkdir -p "${source_root}/target/release"
 cp "${CARGO_TARGET_DIR}/release/liblibrustdesk.so" \
-  "${source_root}/target/release/librustdesk.so"
+  "${source_root}/target/release/liblibrustdesk.so"
 
 sed -i \
   's/ffi.NativeFunction<ffi.Bool Function(DartPort/ffi.NativeFunction<ffi.Uint8 Function(DartPort/g' \
