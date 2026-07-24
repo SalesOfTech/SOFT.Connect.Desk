@@ -28,6 +28,7 @@ export CARGO_INCREMENTAL=0
 cargo +1.81.0 build \
   --locked \
   --lib \
+  --bin service \
   --release \
   --features "flutter,hwcodec,unix-file-copy-paste,${role_feature}"
 
