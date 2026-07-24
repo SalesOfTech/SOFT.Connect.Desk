@@ -50,6 +50,7 @@ mkdir -p \
   "${build_root}/vcpkg-packages" \
   "${build_root}/downloads" \
   "${build_root}/cargo-target" \
+  "${build_root}/pub-cache" \
   "${output_root}"
 
 rm -rf /opt/vcpkg/installed
@@ -68,6 +69,7 @@ git config --global --add safe.directory "${source_root}"
 export CARGO_TARGET_DIR="${build_root}/cargo-target"
 export CARGO_INCREMENTAL=0
 export DEB_ARCH="${deb_arch}"
+export PUB_CACHE="${build_root}/pub-cache"
 
 flutter_patch="${source_root}/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff"
 if git -C "${flutter_sdk_root}" apply --check "${flutter_patch}" 2>/dev/null; then
@@ -83,6 +85,8 @@ cargo +1.75.0 build \
 mkdir -p "${source_root}/target/release"
 cp "${CARGO_TARGET_DIR}/release/liblibrustdesk.so" \
   "${source_root}/target/release/liblibrustdesk.so"
+
+"${flutter_sdk_root}/bin/flutter" pub get --directory "${source_root}/flutter"
 
 sed -i \
   's/ffi.NativeFunction<ffi.Bool Function(DartPort/ffi.NativeFunction<ffi.Uint8 Function(DartPort/g' \

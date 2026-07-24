@@ -360,6 +360,7 @@ jobs:
             ${{ runner.temp }}/soft-connect-linux-build/cargo-target
             ${{ runner.temp }}/soft-connect-linux-build/downloads
             ${{ runner.temp }}/soft-connect-linux-build/vcpkg-installed
+            ${{ runner.temp }}/soft-connect-linux-build/pub-cache
           key: soft-connect-linux-x64-v1-${{ hashFiles('Cargo.lock', 'vcpkg.json', '.github/docker/linux/Dockerfile') }}
           restore-keys: |
             soft-connect-linux-x64-v1-
@@ -394,6 +395,7 @@ jobs:
             ${{ runner.temp }}/soft-connect-linux-build/cargo-target
             ${{ runner.temp }}/soft-connect-linux-build/downloads
             ${{ runner.temp }}/soft-connect-linux-build/vcpkg-installed
+            ${{ runner.temp }}/soft-connect-linux-build/pub-cache
           key: ${{ steps.linux-cache.outputs.cache-primary-key }}
 
       - name: Upload Linux artifacts
@@ -434,6 +436,7 @@ jobs:
             ${{ runner.temp }}/soft-connect-linux-arm64-build/cargo-target
             ${{ runner.temp }}/soft-connect-linux-arm64-build/downloads
             ${{ runner.temp }}/soft-connect-linux-arm64-build/vcpkg-installed
+            ${{ runner.temp }}/soft-connect-linux-arm64-build/pub-cache
           key: soft-connect-linux-arm64-v1-${{ hashFiles('Cargo.lock', 'vcpkg.json', '.github/docker/linux/Dockerfile') }}
           restore-keys: |
             soft-connect-linux-arm64-v1-
@@ -469,6 +472,7 @@ jobs:
             ${{ runner.temp }}/soft-connect-linux-arm64-build/cargo-target
             ${{ runner.temp }}/soft-connect-linux-arm64-build/downloads
             ${{ runner.temp }}/soft-connect-linux-arm64-build/vcpkg-installed
+            ${{ runner.temp }}/soft-connect-linux-arm64-build/pub-cache
           key: ${{ steps.linux-arm64-cache.outputs.cache-primary-key }}
 
       - name: Upload Linux ARM64 artifacts
