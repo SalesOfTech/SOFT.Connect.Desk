@@ -1,11 +1,11 @@
 [Desktop Entry]
-Name=RustDesk
+Name=SOFT.Connect.Desk
 NoDisplay=true
-MimeType=x-scheme-handler/rustdesk;
-TryExec=rustdesk
-Exec=rustdesk %u
-Icon=rustdesk
+MimeType=x-scheme-handler/softconnectdesk;
+TryExec=soft-connect-desk
+Exec=soft-connect-desk %u
+Icon=soft-connect-desk
 Terminal=false
 Type=Application
 StartupNotify=false
-StartupWMClass=rustdesk
+StartupWMClass=soft-connect-desk

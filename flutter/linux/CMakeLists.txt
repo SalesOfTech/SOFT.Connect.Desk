@@ -4,10 +4,10 @@ project(runner LANGUAGES C CXX)
 
 # The name of the executable created for the application. Change this to change
 # the on-disk name of your application.
-set(BINARY_NAME "rustdesk")
+set(BINARY_NAME "soft-connect-desk")
 # The unique GTK application identifier for this application. See:
 # https://wiki.gnome.org/HowDoI/ChooseApplicationID
-set(APPLICATION_ID "com.carriez.flutter_hbb")
+set(APPLICATION_ID "tech.salesof.softconnectdesk")
 
 # Explicitly opt into modern CMake behaviors to avoid warnings with recent
 # versions of CMake.
@@ -191,7 +191,7 @@ message(STATUS "rustdesk lib build type: ${RUSTDESK_LIB_BUILD_TYPE}")
 
 set(RUSTDESK_LIB "../../target/${RUSTDESK_LIB_BUILD_TYPE}/liblibrustdesk.so")
 install(FILES "${RUSTDESK_LIB}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
-COMPONENT Runtime RENAME librustdesk.so)
+COMPONENT Runtime RENAME libsoftconnectdesk.so)
 
 # Fully re-copy the assets directory on each build to avoid having stale files
 # from a previous install.

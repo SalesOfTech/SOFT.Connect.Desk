@@ -120,9 +120,9 @@ class PlatformFFI {
     final dylib = isAndroid
         ? DynamicLibrary.open('librustdesk.so')
         : isLinux
-            ? DynamicLibrary.open('librustdesk.so')
+            ? DynamicLibrary.open('libsoftconnectdesk.so')
             : isWindows
-                ? DynamicLibrary.open('librustdesk.dll')
+                ? DynamicLibrary.open('libsoftconnectdesk.dll')
                 :
                 // Use executable itself as the dynamic library for MacOS.
                 // Multiple dylib instances will cause some global instances to be invalid.
