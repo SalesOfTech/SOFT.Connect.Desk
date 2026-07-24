@@ -81,7 +81,7 @@ cargo +1.75.0 build \
   --features "hwcodec,flutter,unix-file-copy-paste,${role_feature}"
 
 mkdir -p "${source_root}/target/release"
-cp "${CARGO_TARGET_DIR}/release/librustdesk.so" \
+cp "${CARGO_TARGET_DIR}/release/liblibrustdesk.so" \
   "${source_root}/target/release/librustdesk.so"
 
 sed -i \

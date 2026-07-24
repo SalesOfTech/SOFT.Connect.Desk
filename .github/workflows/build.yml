@@ -38,7 +38,7 @@ env:
   VCPKG_COMMIT: "120deac3062162151622ca4860575a33844ba10b"
   NDK_VERSION: "r28c"
   CARGO_NDK_VERSION: "3.1.2"
-  BUILD_ROLE: ${{ github.event_name == 'workflow_dispatch' && inputs.role || 'support' }}
+  BUILD_ROLE: ${{ github.event_name == 'workflow_dispatch' && inputs.role || 'all' }}
 
 jobs:
   bridge:
@@ -754,7 +754,7 @@ jobs:
           - aarch64-linux-android
           - armv7-linux-androideabi
           - x86_64-linux-android
-        role: ${{ fromJSON(github.event_name == 'workflow_dispatch' && (inputs.role == 'all' && '["support","operator"]' || format('["{0}"]', inputs.role)) || '["support"]') }}
+        role: ${{ fromJSON(github.event_name == 'workflow_dispatch' && (inputs.role == 'all' && '["support","operator"]' || format('["{0}"]', inputs.role)) || '["support","operator"]') }}
     steps:
       - name: Free runner disk space
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be
@@ -792,6 +792,12 @@ jobs:
           channel: stable
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
+
+      - name: Install Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
 
       - name: Patch Flutter
         shell: bash
@@ -868,8 +874,30 @@ jobs:
         shell: bash
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
-          JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
+          for secret_name in \
+            ANDROID_KEYSTORE_BASE64 \
+            ANDROID_KEYSTORE_PASSWORD \
+            ANDROID_KEY_ALIAS \
+            ANDROID_KEY_PASSWORD; do
+            if [[ -z "${!secret_name:-}" ]]; then
+              echo "Required GitHub Secret is missing: ${secret_name}" >&2
+              exit 1
+            fi
+          done
+          printf '%s' "${ANDROID_KEYSTORE_BASE64}" \
+            | base64 --decode \
+            > flutter/android/app/soft-connect-desk-release.p12
+          {
+            printf 'storePassword=%s\n' "${ANDROID_KEYSTORE_PASSWORD}"
+            printf 'keyPassword=%s\n' "${ANDROID_KEY_PASSWORD}"
+            printf 'keyAlias=%s\n' "${ANDROID_KEY_ALIAS}"
+            printf 'storeFile=soft-connect-desk-release.p12\n'
+          } > flutter/android/key.properties
           case "${{ matrix.target }}" in
             aarch64-linux-android)
               abi=arm64-v8a
@@ -895,12 +923,16 @@ jobs:
           mkdir -p "${jni_dir}" "dist/android/${{ matrix.role }}"
           cp "target/${{ matrix.target }}/release/liblibrustdesk.so" "${jni_dir}/librustdesk.so"
           cp "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/${libcxx}/libc++_shared.so" "${jni_dir}/"
-          sed -i 's/signingConfig signingConfigs.release/signingConfig signingConfigs.debug/g' flutter/android/app/build.gradle
           sed -i 's/org.gradle.jvmargs=-Xmx1024M/org.gradle.jvmargs=-Xmx2g/g' flutter/android/gradle.properties
+          case "${{ matrix.role }}" in
+            support) role_name=Support ;;
+            operator) role_name=Operator ;;
+            *) exit 2 ;;
+          esac
           pushd flutter
           flutter build apk --release --target-platform "${flutter_target}" --split-per-abi
           source_apk="$(find build/app/outputs/flutter-apk -maxdepth 1 -name "app-${abi}-release.apk" -print -quit)"
-          cp "${source_apk}" "../dist/android/${{ matrix.role }}/SOFT.Connect.Desk-${{ matrix.role }}-android-${artifact_arch}.apk"
+          cp "${source_apk}" "../dist/android/${{ matrix.role }}/SOFT.Connect.Desk-${role_name}-android-${artifact_arch}.apk"
           popd
 
       - name: Upload Android native library
@@ -927,7 +959,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        role: ${{ fromJSON(github.event_name == 'workflow_dispatch' && (inputs.role == 'all' && '["support","operator"]' || format('["{0}"]', inputs.role)) || '["support"]') }}
+        role: ${{ fromJSON(github.event_name == 'workflow_dispatch' && (inputs.role == 'all' && '["support","operator"]' || format('["{0}"]', inputs.role)) || '["support","operator"]') }}
     steps:
       - name: Checkout source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -946,6 +978,12 @@ jobs:
           channel: stable
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
+
+      - name: Install Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
 
       - name: Patch Flutter
         shell: bash
@@ -985,8 +1023,30 @@ jobs:
         shell: bash
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
-          JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
+          for secret_name in \
+            ANDROID_KEYSTORE_BASE64 \
+            ANDROID_KEYSTORE_PASSWORD \
+            ANDROID_KEY_ALIAS \
+            ANDROID_KEY_PASSWORD; do
+            if [[ -z "${!secret_name:-}" ]]; then
+              echo "Required GitHub Secret is missing: ${secret_name}" >&2
+              exit 1
+            fi
+          done
+          printf '%s' "${ANDROID_KEYSTORE_BASE64}" \
+            | base64 --decode \
+            > flutter/android/app/soft-connect-desk-release.p12
+          {
+            printf 'storePassword=%s\n' "${ANDROID_KEYSTORE_PASSWORD}"
+            printf 'keyPassword=%s\n' "${ANDROID_KEY_PASSWORD}"
+            printf 'keyAlias=%s\n' "${ANDROID_KEY_ALIAS}"
+            printf 'storeFile=soft-connect-desk-release.p12\n'
+          } > flutter/android/key.properties
           declare -A libcxx=(
             [arm64-v8a]=aarch64-linux-android
             [armeabi-v7a]=arm-linux-androideabi
@@ -998,13 +1058,17 @@ jobs:
             cp "native/${abi}/liblibrustdesk.so" "${jni_dir}/librustdesk.so"
             cp "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/${libcxx[$abi]}/libc++_shared.so" "${jni_dir}/"
           done
-          sed -i 's/signingConfig signingConfigs.release/signingConfig signingConfigs.debug/g' flutter/android/app/build.gradle
           sed -i 's/org.gradle.jvmargs=-Xmx1024M/org.gradle.jvmargs=-Xmx2g/g' flutter/android/gradle.properties
           mkdir -p "dist/android/${{ matrix.role }}"
+          case "${{ matrix.role }}" in
+            support) role_name=Support ;;
+            operator) role_name=Operator ;;
+            *) exit 2 ;;
+          esac
           pushd flutter
           flutter build apk --release --target-platform android-arm64,android-arm,android-x64
           cp build/app/outputs/flutter-apk/app-release.apk \
-            "../dist/android/${{ matrix.role }}/SOFT.Connect.Desk-${{ matrix.role }}-android-universal.apk"
+            "../dist/android/${{ matrix.role }}/SOFT.Connect.Desk-${role_name}-android-universal.apk"
           popd
 
       - name: Upload universal APK
@@ -1013,3 +1077,83 @@ jobs:
           name: SOFT.Connect.Desk-Android-${{ matrix.role }}-universal
           retention-days: 14
           path: dist/android/${{ matrix.role }}/*.apk
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - windows
+      - windows-arm64
+      - linux
+      - linux-arm64
+      - flatpak
+      - flatpak-arm64
+      - archlinux
+      - macos
+      - android
+      - android-universal
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          submodules: recursive
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          path: release-downloads
+
+      - name: Prepare release files
+        shell: bash
+        run: |
+          set -euo pipefail
+          staging="${RUNNER_TEMP}/release-staging"
+          mkdir -p "${staging}"
+
+          while IFS= read -r -d '' source_file; do
+            file_name="$(basename "${source_file}")"
+            destination="${staging}/${file_name}"
+            if [[ -e "${destination}" ]]; then
+              echo "Duplicate release filename: ${file_name}" >&2
+              exit 1
+            fi
+            cp "${source_file}" "${destination}"
+          done < <(
+            find release-downloads -type f \
+              \( -iname 'SOFT.Connect.Desk-Support-*' -o -iname 'SOFT.Connect.Desk-Operator-*' \) \
+              -print0
+          )
+
+          if ! find "${staging}" -maxdepth 1 -type f -name 'SOFT.Connect.Desk-Support-*' -print -quit | grep -q .; then
+            echo "No Support release files found" >&2
+            exit 1
+          fi
+          if ! find "${staging}" -maxdepth 1 -type f -name 'SOFT.Connect.Desk-Operator-*' -print -quit | grep -q .; then
+            echo "No Operator release files found" >&2
+            exit 1
+          fi
+
+          source_archive="${staging}/SOFT.Connect.Desk-${GITHUB_REF_NAME}-source.tar.gz"
+          git ls-files --recurse-submodules -z \
+            | tar --null -T - -czf "${source_archive}"
+
+          (
+            cd "${staging}"
+            sha256sum SOFT.Connect.Desk-* > SHA256SUMS.txt
+          )
+
+          echo "RELEASE_STAGING=${staging}" >> "${GITHUB_ENV}"
+
+      - name: Publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            "${RELEASE_STAGING}"/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "SOFT.Connect.Desk ${GITHUB_REF_NAME}" \
+            --generate-notes
