@@ -5,7 +5,7 @@ Branded self-hosted remote support client by **Sales Of Tech**.
 - Product: **SOFT.Connect.Desk**
 - Website: <https://connect.salesof.tech>
 - Download page: <https://desk.salesof.tech>
-- Platforms: Windows, macOS, and Linux
+- Platforms: Windows, macOS, Linux, and Android
 - Server order: `desk.salesof.tech`, `95.105.66.180`, `desk.salesoftech.com`
 
 ## Client roles
@@ -23,7 +23,7 @@ The roles are selected at compile time with the mutually exclusive Cargo feature
 Run **Build SOFT.Connect.Desk** from the Actions tab and select:
 
 - role: `support`, `operator`, or `all`;
-- platform: `windows`, `linux`, `macos`, or `all`.
+- platform: `windows`, `linux`, `macos`, `android`, or `all`.
 
 Tag builds (`v*`) build Support clients only. macOS artifacts are ad-hoc signed,
 not notarized, and do not require a paid Apple Developer Program membership.

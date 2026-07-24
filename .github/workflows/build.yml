@@ -6,7 +6,7 @@ on:
       role:
         description: Client role to build
         required: true
-        default: support
+        default: all
         type: choice
         options:
           - support
@@ -22,6 +22,7 @@ on:
           - windows
           - linux
           - macos
+          - android
   push:
     tags:
       - "v*"
@@ -35,6 +36,8 @@ env:
   FLUTTER_VERSION: "3.24.5"
   BRIDGE_FLUTTER_VERSION: "3.22.3"
   VCPKG_COMMIT: "120deac3062162151622ca4860575a33844ba10b"
+  NDK_VERSION: "r28c"
+  CARGO_NDK_VERSION: "3.1.2"
   BUILD_ROLE: ${{ github.event_name == 'workflow_dispatch' && inputs.role || 'support' }}
 
 jobs:
@@ -373,3 +376,275 @@ jobs:
           name: SOFT.Connect.Desk-macOS-${{ matrix.arch }}-${{ env.BUILD_ROLE }}
           retention-days: 14
           path: dist/macos
+
+  android:
+    name: Android ${{ matrix.target }} ${{ matrix.role }}
+    needs: bridge
+    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'android'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - aarch64-linux-android
+          - armv7-linux-androideabi
+          - x86_64-linux-android
+        role: ${{ fromJSON(github.event_name == 'workflow_dispatch' && (inputs.role == 'all' && '["support","operator"]' || format('["{0}"]', inputs.role)) || '["support"]') }}
+    steps:
+      - name: Free runner disk space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be
+        with:
+          tool-cache: false
+          android: false
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: true
+          swap-storage: false
+
+      - name: Checkout source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          submodules: recursive
+
+      - name: Restore bridge
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: bridge
+          path: .
+
+      - name: Install native prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang cmake g++ g++-multilib gcc-multilib libclang-dev \
+            libunwind-dev llvm-dev nasm ninja-build openjdk-17-jdk-headless \
+            pkg-config
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Patch Flutter
+        shell: bash
+        run: |
+          flutter_root="$(cd "$(dirname "$(which flutter)")/.." && pwd)"
+          patch_file="${GITHUB_WORKSPACE}/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff"
+          if git -C "${flutter_root}" apply --check "${patch_file}" 2>/dev/null; then
+            git -C "${flutter_root}" apply "${patch_file}"
+          fi
+
+      - name: Install Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779
+        with:
+          ndk-version: ${{ env.NDK_VERSION }}
+          add-to-path: true
+
+      - name: Export GitHub cache variables
+        uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2
+        with:
+          vcpkgDirectory: /opt/artifacts/vcpkg
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT }}
+          doNotCache: false
+
+      - name: Install Android native dependencies
+        shell: bash
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          case "${{ matrix.target }}" in
+            aarch64-linux-android) android_abi=arm64-v8a ;;
+            armv7-linux-androideabi) android_abi=armeabi-v7a ;;
+            x86_64-linux-android) android_abi=x86_64 ;;
+            *) exit 2 ;;
+          esac
+          ./flutter/build_android_deps.sh "${android_abi}"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: ${{ matrix.target }}
+          components: rustfmt
+
+      - name: Cache Android Rust build
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          prefix-key: soft-connect-android-${{ matrix.target }}-${{ matrix.role }}
+
+      - name: Build Android native library
+        shell: bash
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
+          SOFT_CONNECT_ROLE_FEATURE: soft-connect-${{ matrix.role }}
+        run: |
+          cargo install cargo-ndk --version "${CARGO_NDK_VERSION}" --locked
+          case "${{ matrix.target }}" in
+            aarch64-linux-android) ./flutter/ndk_arm64.sh ;;
+            armv7-linux-androideabi) ./flutter/ndk_arm.sh ;;
+            x86_64-linux-android) ./flutter/ndk_x64.sh ;;
+            *) exit 2 ;;
+          esac
+
+      - name: Package architecture APK
+        shell: bash
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
+        run: |
+          case "${{ matrix.target }}" in
+            aarch64-linux-android)
+              abi=arm64-v8a
+              flutter_target=android-arm64
+              artifact_arch=arm64
+              libcxx=aarch64-linux-android
+              ;;
+            armv7-linux-androideabi)
+              abi=armeabi-v7a
+              flutter_target=android-arm
+              artifact_arch=armv7
+              libcxx=arm-linux-androideabi
+              ;;
+            x86_64-linux-android)
+              abi=x86_64
+              flutter_target=android-x64
+              artifact_arch=x86_64
+              libcxx=x86_64-linux-android
+              ;;
+            *) exit 2 ;;
+          esac
+          jni_dir="flutter/android/app/src/main/jniLibs/${abi}"
+          mkdir -p "${jni_dir}" "dist/android/${{ matrix.role }}"
+          cp "target/${{ matrix.target }}/release/liblibrustdesk.so" "${jni_dir}/librustdesk.so"
+          cp "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/${libcxx}/libc++_shared.so" "${jni_dir}/"
+          sed -i 's/signingConfig signingConfigs.release/signingConfig signingConfigs.debug/g' flutter/android/app/build.gradle
+          sed -i 's/org.gradle.jvmargs=-Xmx1024M/org.gradle.jvmargs=-Xmx2g/g' flutter/android/gradle.properties
+          pushd flutter
+          flutter build apk --release --target-platform "${flutter_target}" --split-per-abi
+          source_apk="$(find build/app/outputs/flutter-apk -maxdepth 1 -name "app-${abi}-release.apk" -print -quit)"
+          cp "${source_apk}" "../dist/android/${{ matrix.role }}/SOFT.Connect.Desk-${{ matrix.role }}-android-${artifact_arch}.apk"
+          popd
+
+      - name: Upload Android native library
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: SOFT.Connect.Desk-Android-lib-${{ matrix.role }}-${{ matrix.target }}
+          retention-days: 7
+          path: target/${{ matrix.target }}/release/liblibrustdesk.so
+
+      - name: Upload architecture APK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: SOFT.Connect.Desk-Android-${{ matrix.role }}-${{ matrix.target }}
+          retention-days: 14
+          path: dist/android/${{ matrix.role }}/*.apk
+
+  android-universal:
+    name: Android universal ${{ matrix.role }}
+    needs:
+      - bridge
+      - android
+    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'android'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        role: ${{ fromJSON(github.event_name == 'workflow_dispatch' && (inputs.role == 'all' && '["support","operator"]' || format('["{0}"]', inputs.role)) || '["support"]') }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          submodules: recursive
+
+      - name: Restore bridge
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: bridge
+          path: .
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Patch Flutter
+        shell: bash
+        run: |
+          flutter_root="$(cd "$(dirname "$(which flutter)")/.." && pwd)"
+          patch_file="${GITHUB_WORKSPACE}/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff"
+          if git -C "${flutter_root}" apply --check "${patch_file}" 2>/dev/null; then
+            git -C "${flutter_root}" apply "${patch_file}"
+          fi
+
+      - name: Install Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779
+        with:
+          ndk-version: ${{ env.NDK_VERSION }}
+          add-to-path: true
+
+      - name: Download ARM64 library
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: SOFT.Connect.Desk-Android-lib-${{ matrix.role }}-aarch64-linux-android
+          path: native/arm64-v8a
+
+      - name: Download ARMv7 library
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: SOFT.Connect.Desk-Android-lib-${{ matrix.role }}-armv7-linux-androideabi
+          path: native/armeabi-v7a
+
+      - name: Download x86_64 library
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: SOFT.Connect.Desk-Android-lib-${{ matrix.role }}-x86_64-linux-android
+          path: native/x86_64
+
+      - name: Package universal APK
+        shell: bash
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
+        run: |
+          declare -A libcxx=(
+            [arm64-v8a]=aarch64-linux-android
+            [armeabi-v7a]=arm-linux-androideabi
+            [x86_64]=x86_64-linux-android
+          )
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            jni_dir="flutter/android/app/src/main/jniLibs/${abi}"
+            mkdir -p "${jni_dir}"
+            cp "native/${abi}/liblibrustdesk.so" "${jni_dir}/librustdesk.so"
+            cp "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/${libcxx[$abi]}/libc++_shared.so" "${jni_dir}/"
+          done
+          sed -i 's/signingConfig signingConfigs.release/signingConfig signingConfigs.debug/g' flutter/android/app/build.gradle
+          sed -i 's/org.gradle.jvmargs=-Xmx1024M/org.gradle.jvmargs=-Xmx2g/g' flutter/android/gradle.properties
+          mkdir -p "dist/android/${{ matrix.role }}"
+          pushd flutter
+          flutter build apk --release --target-platform android-arm64,android-arm,android-x64
+          cp build/app/outputs/flutter-apk/app-release.apk \
+            "../dist/android/${{ matrix.role }}/SOFT.Connect.Desk-${{ matrix.role }}-android-universal.apk"
+          popd
+
+      - name: Upload universal APK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: SOFT.Connect.Desk-Android-${{ matrix.role }}-universal
+          retention-days: 14
+          path: dist/android/${{ matrix.role }}/*.apk
