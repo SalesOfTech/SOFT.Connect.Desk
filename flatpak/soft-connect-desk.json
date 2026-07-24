@@ -37,8 +37,8 @@
       "name": "soft-connect-desk",
       "buildsystem": "simple",
       "build-commands": [
-        "bsdtar -Oxf soft-connect-desk.deb data.tar.xz | bsdtar -xf -",
-        "cp -r usr/* /app/",
+        "mkdir deb && cd deb && bsdtar -xf ../soft-connect-desk.deb && bsdtar -xf data.tar.*",
+        "cp -r deb/usr/* /app/",
         "mkdir -p /app/bin && ln -sf /app/share/soft-connect-desk/soft-connect-desk /app/bin/soft-connect-desk"
       ],
       "sources": [

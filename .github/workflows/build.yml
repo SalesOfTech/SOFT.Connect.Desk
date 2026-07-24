@@ -633,24 +633,25 @@ jobs:
         uses: rustdesk-org/arch-makepkg-action@04200739ed1d0bf6f2188b6736b26a767c57a7f9
         with:
           packages:
-          scripts: |
+          scripts: >-
+            bash -lc 'set -euo pipefail;
             case "${BUILD_ROLE}" in
-              support) roles=(Support) ;;
-              operator) roles=(Operator) ;;
-              all) roles=(Support Operator) ;;
+              support) roles="Support" ;;
+              operator) roles="Operator" ;;
+              all) roles="Support Operator" ;;
               *) echo "Unknown role: ${BUILD_ROLE}" >&2; exit 2 ;;
-            esac
-            workspace="$(pwd)"
-            for role in "${roles[@]}"; do
-              bundle="$(realpath "dist/linux/SOFT.Connect.Desk-${role}-linux-x64-bundle.tar.gz")"
-              pushd res
-              HBB="${workspace}" SOFT_CONNECT_BUNDLE="${bundle}" makepkg -f --noconfirm
-              package="$(find . -maxdepth 1 -name 'soft-connect-desk-*.pkg.tar.zst' -print -quit)"
-              mv "${package}" "../dist/linux/SOFT.Connect.Desk-${role}-linux-x64.pkg.tar.zst"
-              popd
-            done
-            cd dist/linux
-            sha256sum ./*.pkg.tar.zst > SHA256SUMS-ArchLinux.txt
+            esac;
+            workspace="$(pwd)";
+            for role in ${roles}; do
+              bundle="$(realpath "dist/linux/SOFT.Connect.Desk-${role}-linux-x64-bundle.tar.gz")";
+              pushd res;
+              HBB="${workspace}" SOFT_CONNECT_BUNDLE="${bundle}" makepkg -f --noconfirm;
+              package="$(find . -maxdepth 1 -name "soft-connect-desk-*.pkg.tar.zst" -print -quit)";
+              mv "${package}" "../dist/linux/SOFT.Connect.Desk-${role}-linux-x64.pkg.tar.zst";
+              popd;
+            done;
+            cd dist/linux;
+            sha256sum ./*.pkg.tar.zst > SHA256SUMS-ArchLinux.txt'
 
       - name: Upload Arch Linux artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
