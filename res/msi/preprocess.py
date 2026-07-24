@@ -104,11 +104,11 @@ def read_lines_and_start_index(file_path, tag_start, tag_end):
 
     if index_start == -1:
         print(f'Error: start tag "{tag_start}" not found')
-        return None, None
+        return None, None, None
     if index_end == -1:
         print(f'Error: end tag "{tag_end}" not found')
-        return None, None
-    return lines, index_start
+        return None, None, None
+    return lines, index_start, index_end
 
 
 def insert_components_between_tags(lines, index_start, app_name, dist_dir):
@@ -429,10 +429,13 @@ def gen_conn_type(args):
 
 def gen_content_between_tags(filename, tag_start, tag_end, func):
     target_file = Path(sys.argv[0]).parent.joinpath(filename)
-    lines, index_start = read_lines_and_start_index(target_file, tag_start, tag_end)
+    lines, index_start, index_end = read_lines_and_start_index(
+        target_file, tag_start, tag_end
+    )
     if lines is None:
         return False
 
+    del lines[index_start + 1:index_end]
     func(lines, index_start)
 
     with open(target_file, "w", encoding="utf-8") as f:
