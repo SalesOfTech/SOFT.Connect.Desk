@@ -1,0 +1,375 @@
+name: Build SOFT.Connect.Desk
+
+on:
+  workflow_dispatch:
+    inputs:
+      role:
+        description: Client role to build
+        required: true
+        default: support
+        type: choice
+        options:
+          - support
+          - operator
+          - all
+      platform:
+        description: Platform to build
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - windows
+          - linux
+          - macos
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+env:
+  RUST_VERSION: "1.75.0"
+  MAC_RUST_VERSION: "1.81.0"
+  FLUTTER_VERSION: "3.24.5"
+  BRIDGE_FLUTTER_VERSION: "3.22.3"
+  VCPKG_COMMIT: "120deac3062162151622ca4860575a33844ba10b"
+  BUILD_ROLE: ${{ github.event_name == 'workflow_dispatch' && inputs.role || 'support' }}
+
+jobs:
+  bridge:
+    name: Generate Flutter bridge
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          submodules: recursive
+
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake g++ libclang-dev libgtk-3-dev llvm-dev nasm ninja-build pkg-config
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: rustfmt
+
+      - name: Cache Rust bridge tools
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          prefix-key: soft-connect-bridge
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          channel: stable
+          flutter-version: ${{ env.BRIDGE_FLUTTER_VERSION }}
+          cache: true
+
+      - name: Generate bridge
+        shell: bash
+        run: |
+          cargo install cargo-expand --version 1.0.95 --locked
+          cargo install flutter_rust_bridge_codegen --version 1.80.1 --features uuid --locked
+          sed -i -e 's/extended_text: 14.0.0/extended_text: 13.0.0/g' flutter/pubspec.yaml
+          pushd flutter
+          flutter pub get
+          popd
+          flutter_rust_bridge_codegen \
+            --rust-input ./src/flutter_ffi.rs \
+            --dart-output ./flutter/lib/generated_bridge.dart \
+            --c-output ./flutter/macos/Runner/bridge_generated.h
+
+      - name: Upload bridge
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bridge
+          retention-days: 7
+          path: |
+            src/bridge_generated.rs
+            src/bridge_generated.io.rs
+            flutter/lib/generated_bridge.dart
+            flutter/lib/generated_bridge.freezed.dart
+            flutter/macos/Runner/bridge_generated.h
+
+  windows:
+    name: Windows x64
+    needs: bridge
+    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'windows'
+    runs-on: windows-2022
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          submodules: recursive
+
+      - name: Restore bridge
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: bridge
+          path: .
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install LLVM
+        uses: KyleMayes/install-llvm-action@ebc0426251bc40c7cd31162802432c68818ab8f0
+        with:
+          version: "15.0.6"
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Patch Flutter and install custom Windows engine
+        shell: pwsh
+        run: |
+          $flutter = (Get-Command flutter.bat).Source
+          $flutterRoot = Split-Path -Parent (Split-Path -Parent $flutter)
+          $patch = Join-Path $env:GITHUB_WORKSPACE ".github\patches\flutter_3.24.4_dropdown_menu_enableFilter.diff"
+          git -C $flutterRoot apply --check $patch 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            git -C $flutterRoot apply $patch
+          }
+          flutter precache --windows
+          Invoke-WebRequest `
+            -Uri "https://github.com/rustdesk/engine/releases/download/main/windows-x64-release.zip" `
+            -OutFile "$env:RUNNER_TEMP\windows-x64-release.zip"
+          $engineTemp = Join-Path $env:RUNNER_TEMP "windows-x64-release"
+          Expand-Archive -Path "$env:RUNNER_TEMP\windows-x64-release.zip" -DestinationPath $engineTemp
+          $engineTarget = Join-Path $flutterRoot "bin\cache\artifacts\engine\windows-x64-release"
+          Copy-Item -Path "$engineTemp\*" -Destination $engineTarget -Recurse -Force
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: rustfmt
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          prefix-key: soft-connect-windows
+
+      - name: Export GitHub cache variables
+        uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2
+        with:
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT }}
+          doNotCache: false
+
+      - name: Install native dependencies
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_ROOT\vcpkg.exe" install `
+            --triplet=x64-windows-static `
+            --host-triplet=x64-windows-static `
+            "--x-install-root=$env:VCPKG_ROOT\installed"
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+      - name: Build Windows clients
+        shell: pwsh
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}\soft-connect-cargo-target
+        run: .github/scripts/build-windows.ps1 -Role $env:BUILD_ROLE
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: SOFT.Connect.Desk-Windows-${{ env.BUILD_ROLE }}
+          retention-days: 14
+          path: dist/windows
+
+  linux:
+    name: Linux x64
+    needs: bridge
+    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'linux'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Free runner disk space
+        run: |
+          sudo rm -rf /opt/ghc /usr/local/lib/android /usr/share/dotnet
+          docker system prune --all --force
+          df -h
+
+      - name: Checkout source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          submodules: recursive
+
+      - name: Restore bridge
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: bridge
+          path: .
+
+      - name: Build Linux clients
+        shell: bash
+        run: |
+          docker build \
+            --tag soft-connect-desk-linux-builder:${GITHUB_SHA} \
+            .github/docker/linux
+          mkdir -p "${RUNNER_TEMP}/soft-connect-linux-build" "${GITHUB_WORKSPACE}/dist/linux"
+          case "${BUILD_ROLE}" in
+            support) roles=(support) ;;
+            operator) roles=(operator) ;;
+            all) roles=(support operator) ;;
+            *) echo "Unknown role: ${BUILD_ROLE}" >&2; exit 2 ;;
+          esac
+          for role in "${roles[@]}"; do
+            docker run --rm \
+              --env "ROLE=${role}" \
+              --mount "type=bind,source=${GITHUB_WORKSPACE},target=/workspace" \
+              --mount "type=bind,source=${RUNNER_TEMP}/soft-connect-linux-build,target=/build" \
+              --mount "type=bind,source=${GITHUB_WORKSPACE}/dist/linux,target=/out" \
+              "soft-connect-desk-linux-builder:${GITHUB_SHA}"
+          done
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: SOFT.Connect.Desk-Linux-${{ env.BUILD_ROLE }}
+          retention-days: 14
+          path: dist/linux
+
+  macos:
+    name: macOS ${{ matrix.arch }}
+    needs: bridge
+    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'macos'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+            vcpkg_triplet: x64-osx
+            minimum_macos: "10.14"
+          - arch: arm64
+            runner: macos-14
+            target: aarch64-apple-darwin
+            vcpkg_triplet: arm64-osx
+            minimum_macos: "12.3"
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          submodules: recursive
+
+      - name: Restore bridge
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: bridge
+          path: .
+
+      - name: Install native build tools
+        shell: bash
+        run: |
+          brew install llvm pkg-config
+          curl -fsSL \
+            https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/macosx/nasm-2.16.03-macosx.zip \
+            -o "${RUNNER_TEMP}/nasm.zip"
+          unzip -q "${RUNNER_TEMP}/nasm.zip" -d "${RUNNER_TEMP}/nasm"
+          sudo cp "${RUNNER_TEMP}/nasm/nasm-2.16.03/nasm" /usr/local/bin/nasm
+          nasm --version
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Patch Flutter
+        shell: bash
+        run: |
+          flutter_root="$(cd "$(dirname "$(which flutter)")/.." && pwd)"
+          patch_file="${GITHUB_WORKSPACE}/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff"
+          if git -C "${flutter_root}" apply --check "${patch_file}" 2>/dev/null; then
+            git -C "${flutter_root}" apply "${patch_file}"
+          fi
+          sed -i.bak \
+            's/_setFramesEnabledState(false);/\/\/_setFramesEnabledState(false);/g' \
+            "${flutter_root}/packages/flutter/lib/src/scheduler/binding.dart"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: ${{ env.MAC_RUST_VERSION }}
+          targets: ${{ matrix.target }}
+          components: rustfmt
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          prefix-key: soft-connect-macos-${{ matrix.arch }}
+
+      - name: Export GitHub cache variables
+        uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2
+        with:
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT }}
+          doNotCache: false
+
+      - name: Install native dependencies
+        shell: bash
+        run: |
+          "${VCPKG_ROOT}/vcpkg" install \
+            --triplet="${{ matrix.vcpkg_triplet }}" \
+            --host-triplet="${{ matrix.vcpkg_triplet }}" \
+            --x-install-root="${VCPKG_ROOT}/installed"
+
+      - name: Set minimum macOS version
+        shell: bash
+        run: |
+          min="${{ matrix.minimum_macos }}"
+          sed -i.bak -E "s/MACOSX_DEPLOYMENT_TARGET=[0-9.]+/MACOSX_DEPLOYMENT_TARGET=${min}/" build.py
+          sed -i.bak -E "s/platform :osx, '[0-9.]+'/platform :osx, '${min}'/" flutter/macos/Podfile
+          sed -i.bak -E "s/osx_minimum_system_version = \"[0-9.]+\"/osx_minimum_system_version = \"${min}\"/" Cargo.toml
+          sed -i.bak -E "s/MACOSX_DEPLOYMENT_TARGET = [0-9.]+;/MACOSX_DEPLOYMENT_TARGET = ${min};/" flutter/macos/Runner.xcodeproj/project.pbxproj
+
+      - name: Build unsigned macOS clients
+        shell: bash
+        env:
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.minimum_macos }}
+        run: |
+          case "${BUILD_ROLE}" in
+            support) roles=(support) ;;
+            operator) roles=(operator) ;;
+            all) roles=(support operator) ;;
+            *) echo "Unknown role: ${BUILD_ROLE}" >&2; exit 2 ;;
+          esac
+          for role in "${roles[@]}"; do
+            bash .github/scripts/build-macos-unsigned.sh "${role}"
+          done
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: SOFT.Connect.Desk-macOS-${{ matrix.arch }}-${{ env.BUILD_ROLE }}
+          retention-days: 14
+          path: dist/macos
