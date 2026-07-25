@@ -1,4 +1,4 @@
-package com.carriez.flutter_hbb
+package tech.salesof.softconnectdesk
 
 /**
  * Handle remote input and dispatch android gesture

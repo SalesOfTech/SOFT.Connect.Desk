@@ -1,4 +1,4 @@
-package com.carriez.flutter_hbb
+package tech.salesof.softconnectdesk
 
 import java.nio.ByteBuffer
 import java.util.Timer

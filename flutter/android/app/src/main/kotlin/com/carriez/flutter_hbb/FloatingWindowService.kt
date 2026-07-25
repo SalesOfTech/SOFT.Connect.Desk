@@ -1,4 +1,4 @@
-package com.carriez.flutter_hbb
+package tech.salesof.softconnectdesk
 
 import android.annotation.SuppressLint
 import android.app.PendingIntent

@@ -1,4 +1,4 @@
-package com.carriez.flutter_hbb
+package tech.salesof.softconnectdesk
 
 import ffi.FFI
 

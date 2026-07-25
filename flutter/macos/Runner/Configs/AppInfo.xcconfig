@@ -6,7 +6,7 @@
 
 // The application's name. By default this is also the title of the Flutter window.
 PRODUCT_NAME = SOFT.Connect.Desk
-PRODUCT_MODULE_NAME = RustDesk
+PRODUCT_MODULE_NAME = SoftConnectDesk
 
 // The application's bundle identifier
 PRODUCT_BUNDLE_IDENTIFIER = tech.salesof.softconnectdesk
