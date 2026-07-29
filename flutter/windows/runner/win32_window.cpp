@@ -16,14 +16,15 @@ constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 // The number of Win32Window objects that currently exist.
 static int g_active_window_count = 0;
 
-// Static variable to hold the custom icon (needs cleanup on exit)
-static HICON g_custom_icon_ = nullptr;
+// Custom icons loaded from disk need cleanup on exit.
+static HICON g_custom_large_icon_ = nullptr;
+static HICON g_custom_small_icon_ = nullptr;
 
 // Try to load icon from data\flutter_assets\assets\icon.ico if it exists.
 // Returns nullptr if the file doesn't exist or can't be loaded.
-HICON LoadCustomIcon() {
-  if (g_custom_icon_ != nullptr) {
-    return g_custom_icon_;
+HICON LoadCustomIcon(int width, int height, HICON* cached_icon) {
+  if (*cached_icon != nullptr) {
+    return *cached_icon;
   }
   wchar_t exe_path[MAX_PATH];
   if (!GetModuleFileNameW(nullptr, exe_path, MAX_PATH)) {
@@ -47,10 +48,9 @@ HICON LoadCustomIcon() {
     return nullptr;
   }
 
-  g_custom_icon_ = (HICON)LoadImageW(
-      nullptr, icon_path.c_str(), IMAGE_ICON, 0, 0,
-      LR_LOADFROMFILE | LR_DEFAULTSIZE);
-  return g_custom_icon_;
+  *cached_icon = (HICON)LoadImageW(
+      nullptr, icon_path.c_str(), IMAGE_ICON, width, height, LR_LOADFROMFILE);
+  return *cached_icon;
 }
 
 using EnableNonClientDpiScaling = BOOL __stdcall(HWND hwnd);
@@ -112,27 +112,41 @@ WindowClassRegistrar* WindowClassRegistrar::instance_ = nullptr;
 
 const wchar_t* WindowClassRegistrar::GetWindowClass() {
   if (!class_registered_) {
-    WNDCLASS window_class{};
+    WNDCLASSEX window_class{};
+    window_class.cbSize = sizeof(WNDCLASSEX);
     window_class.hCursor = LoadCursor(nullptr, IDC_ARROW);
     window_class.lpszClassName = kWindowClassName;
     window_class.style = CS_HREDRAW | CS_VREDRAW;
     window_class.cbClsExtra = 0;
     window_class.cbWndExtra = 0;
     window_class.hInstance = GetModuleHandle(nullptr);
-    
-    // Try to load icon from data\flutter_assets\assets\icon.ico if it exists
-    HICON custom_icon = LoadCustomIcon();
-    if (custom_icon != nullptr) {
-      window_class.hIcon = custom_icon;
-    } else {
-      window_class.hIcon =
-          LoadIcon(window_class.hInstance, MAKEINTRESOURCE(IDI_APP_ICON));
+
+    const int large_width = GetSystemMetrics(SM_CXICON);
+    const int large_height = GetSystemMetrics(SM_CYICON);
+    const int small_width = GetSystemMetrics(SM_CXSMICON);
+    const int small_height = GetSystemMetrics(SM_CYSMICON);
+
+    // Load the two Windows icon sizes explicitly. Deriving the caption icon
+    // from the large frame can make only the bright connection badge visible.
+    window_class.hIcon =
+        LoadCustomIcon(large_width, large_height, &g_custom_large_icon_);
+    window_class.hIconSm =
+        LoadCustomIcon(small_width, small_height, &g_custom_small_icon_);
+    if (window_class.hIcon == nullptr) {
+      window_class.hIcon = (HICON)LoadImageW(
+          window_class.hInstance, MAKEINTRESOURCE(IDI_APP_ICON), IMAGE_ICON,
+          large_width, large_height, LR_SHARED);
     }
-    
+    if (window_class.hIconSm == nullptr) {
+      window_class.hIconSm = (HICON)LoadImageW(
+          window_class.hInstance, MAKEINTRESOURCE(IDI_APP_ICON), IMAGE_ICON,
+          small_width, small_height, LR_SHARED);
+    }
+
     window_class.hbrBackground = 0;
     window_class.lpszMenuName = nullptr;
     window_class.lpfnWndProc = Win32Window::WndProc;
-    RegisterClass(&window_class);
+    RegisterClassEx(&window_class);
     class_registered_ = true;
   }
   return kWindowClassName;
@@ -142,10 +156,15 @@ void WindowClassRegistrar::UnregisterWindowClass() {
   UnregisterClass(kWindowClassName, nullptr);
   class_registered_ = false;
   
-  // Clean up the custom icon if it was loaded
-  if (g_custom_icon_ != nullptr) {
-    DestroyIcon(g_custom_icon_);
-    g_custom_icon_ = nullptr;
+  // Only file-loaded icons are owned by this process. Resource icons use
+  // LR_SHARED and must not be destroyed.
+  if (g_custom_large_icon_ != nullptr) {
+    DestroyIcon(g_custom_large_icon_);
+    g_custom_large_icon_ = nullptr;
+  }
+  if (g_custom_small_icon_ != nullptr) {
+    DestroyIcon(g_custom_small_icon_);
+    g_custom_small_icon_ = nullptr;
   }
 }
 

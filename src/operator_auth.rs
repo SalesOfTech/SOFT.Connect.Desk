@@ -7,7 +7,10 @@ use hbb_common::{
 };
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use reqwest::blocking::{Client, Response};
-use serde::{Deserialize, Serialize};
+use serde::{
+    de::{self, Deserializer, Visitor},
+    Deserialize, Serialize,
+};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
@@ -109,8 +112,11 @@ struct JwtClaims {
     iss: String,
     sub: String,
     aud: Value,
+    #[serde(deserialize_with = "deserialize_numeric_date")]
     exp: u64,
+    #[serde(deserialize_with = "deserialize_numeric_date")]
     nbf: u64,
+    #[serde(deserialize_with = "deserialize_numeric_date")]
     iat: u64,
     #[serde(default)]
     active: bool,
@@ -119,6 +125,45 @@ struct JwtClaims {
     nonce: Option<String>,
     email: Option<String>,
     name: Option<String>,
+}
+
+fn deserialize_numeric_date<'de, D>(deserializer: D) -> std::result::Result<u64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct NumericDateVisitor;
+
+    impl<'de> Visitor<'de> for NumericDateVisitor {
+        type Value = u64;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("a non-negative JWT NumericDate")
+        }
+
+        fn visit_u64<E>(self, value: u64) -> std::result::Result<Self::Value, E> {
+            Ok(value)
+        }
+
+        fn visit_i64<E>(self, value: i64) -> std::result::Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            u64::try_from(value).map_err(|_| E::custom("JWT NumericDate cannot be negative"))
+        }
+
+        fn visit_f64<E>(self, value: f64) -> std::result::Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            if value.is_finite() && value >= 0.0 && value < u64::MAX as f64 {
+                Ok(value.round() as u64)
+            } else {
+                Err(E::custom("JWT NumericDate is outside the supported range"))
+            }
+        }
+    }
+
+    deserializer.deserialize_any(NumericDateVisitor)
 }
 
 #[derive(Deserialize)]
@@ -993,6 +1038,12 @@ fn emit_event(event: Value) {
 mod tests {
     use super::*;
 
+    #[derive(Deserialize)]
+    struct NumericDateTest {
+        #[serde(deserialize_with = "deserialize_numeric_date")]
+        value: u64,
+    }
+
     #[test]
     fn oauth_random_values_have_required_length() {
         let value = random_base64url_32();
@@ -1007,5 +1058,21 @@ mod tests {
         assert!(audience_contains(&json!(AUDIENCE), AUDIENCE));
         assert!(audience_contains(&json!(["other", AUDIENCE]), AUDIENCE));
         assert!(!audience_contains(&json!(["other"]), AUDIENCE));
+    }
+
+    #[test]
+    fn jwt_numeric_date_accepts_integer_and_fractional_seconds() {
+        let integer: NumericDateTest = serde_json::from_value(json!({
+            "value": 1_785_367_849_u64
+        }))
+        .unwrap();
+        let fractional: NumericDateTest = serde_json::from_value(json!({
+            "value": 1_785_367_849.24284_f64
+        }))
+        .unwrap();
+
+        assert_eq!(integer.value, 1_785_367_849);
+        assert_eq!(fractional.value, 1_785_367_849);
+        assert!(serde_json::from_value::<NumericDateTest>(json!({"value": -1})).is_err());
     }
 }

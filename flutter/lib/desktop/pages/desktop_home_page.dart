@@ -119,8 +119,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                     denied
                         ? _operatorText('Доступ запрещён', 'Access denied')
                         : _operatorText(
-                            'Вход для сотрудников Sales Of Tech',
-                            'Sales Of Tech employee sign-in'),
+                            'Вход для сотрудников Sales\u00A0Of\u00A0Tech',
+                            'Sales\u00A0Of\u00A0Tech employee sign-in'),
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.headlineSmall,
                   ),
