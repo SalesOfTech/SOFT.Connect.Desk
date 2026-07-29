@@ -50,6 +50,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   var watchIsCanRecordAudio = false;
   Timer? _updateTimer;
   bool isCardClosed = false;
+  late final bool _isOperator;
+  Map<String, dynamic> _operatorAuthState = const {'status': 'checking'};
 
   final RxBool _editHover = false.obs;
   final RxBool _block = false.obs;
@@ -59,16 +61,170 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    if (_isOperator && _operatorAuthState['status'] != 'authorized') {
+      return _buildOperatorLogin(context);
+    }
     final isIncomingOnly = bind.isIncomingOnly();
-    return _buildBlock(
-        child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Stack(
       children: [
-        buildLeftPane(context),
-        if (!isIncomingOnly) const VerticalDivider(width: 1),
-        if (!isIncomingOnly) Expanded(child: buildRightPane(context)),
+        _buildBlock(
+            child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            buildLeftPane(context),
+            if (!isIncomingOnly) const VerticalDivider(width: 1),
+            if (!isIncomingOnly) Expanded(child: buildRightPane(context)),
+          ],
+        )),
+        if (_isOperator)
+          Positioned(
+            top: 8,
+            right: 12,
+            child: _buildOperatorAccountButton(context),
+          ),
       ],
-    ));
+    );
+  }
+
+  String _operatorText(String ru, String en) =>
+      Platform.localeName.toLowerCase().startsWith('ru') ? ru : en;
+
+  Widget _buildOperatorLogin(BuildContext context) {
+    final status = _operatorAuthState['status']?.toString() ?? 'checking';
+    final message = _operatorAuthState['message']?.toString() ?? '';
+    final busy = status == 'checking' ||
+        status == 'authenticating' ||
+        status == 'signing_out';
+    final denied = status == 'denied';
+    return ColoredBox(
+      color: Theme.of(context).scaffoldBackgroundColor,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 460),
+          child: Card(
+            elevation: 8,
+            margin: const EdgeInsets.all(24),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 36),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    denied ? Icons.lock_person_outlined : Icons.link_rounded,
+                    color: denied ? Colors.redAccent : MyTheme.accent,
+                    size: 52,
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    denied
+                        ? _operatorText('Доступ запрещён', 'Access denied')
+                        : _operatorText(
+                            'Вход для сотрудников Sales Of Tech',
+                            'Sales Of Tech employee sign-in'),
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    denied
+                        ? _operatorText(
+                            'В вашей учётной записи нет разрешения для Operator.',
+                            'Your account does not have permission to use Operator.')
+                        : _operatorText(
+                            'Operator работает только после авторизации через SOFT.Connect. Вход откроется в системном браузере.',
+                            'Operator works only after authorization through SOFT.Connect. Sign-in opens in your system browser.'),
+                    textAlign: TextAlign.center,
+                  ),
+                  if (message.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    Text(
+                      message,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: status == 'error' || denied
+                            ? Colors.redAccent
+                            : Theme.of(context).textTheme.bodyMedium?.color,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 24),
+                  if (busy)
+                    Column(
+                      children: [
+                        const SizedBox(
+                          width: 30,
+                          height: 30,
+                          child: CircularProgressIndicator(strokeWidth: 3),
+                        ),
+                        if (status == 'authenticating') ...[
+                          const SizedBox(height: 10),
+                          TextButton(
+                            onPressed: () => bind.mainSetCommon(
+                              key: 'operator-auth-cancel',
+                              value: '',
+                            ),
+                            child: Text(translate('Cancel')),
+                          ),
+                        ],
+                      ],
+                    )
+                  else
+                    ElevatedButton.icon(
+                      onPressed: () => bind.mainSetCommon(
+                        key: 'operator-auth-start',
+                        value: '',
+                      ),
+                      icon: const Icon(Icons.open_in_browser),
+                      label: Text(
+                        status == 'error' || denied
+                            ? translate('Retry')
+                            : translate('Login'),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOperatorAccountButton(BuildContext context) {
+    final profile =
+        _operatorAuthState['profile'] as Map<String, dynamic>? ?? const {};
+    final label = (profile['name']?.toString().isNotEmpty ?? false)
+        ? profile['name'].toString()
+        : (profile['email']?.toString().isNotEmpty ?? false)
+            ? profile['email'].toString()
+            : _operatorText('Сотрудник', 'Employee');
+    return Material(
+      color: Theme.of(context).colorScheme.surface.withOpacity(0.94),
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: () => bind.mainSetCommon(
+          key: 'operator-auth-logout',
+          value: '',
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.verified_user_outlined, size: 17),
+              const SizedBox(width: 7),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 180),
+                child: Text(label, overflow: TextOverflow.ellipsis),
+              ),
+              const SizedBox(width: 7),
+              const Icon(Icons.logout, size: 16),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildBlock({required Widget child}) {
@@ -694,7 +850,66 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   @override
   void initState() {
     super.initState();
+    _isOperator =
+        bind.mainGetCommonSync(key: 'soft-connect-role') == 'operator';
+    if (_isOperator) {
+      platformFFI.registerEventHandler(
+        'operator-auth-browser',
+        'desktop-home-operator-auth-browser',
+        (event) async {
+          final value = event['url']?.toString();
+          final url = value == null ? null : Uri.tryParse(value);
+          if (url == null ||
+              !await launchUrl(url, mode: LaunchMode.externalApplication)) {
+            await bind.mainSetCommon(
+              key: 'operator-auth-cancel',
+              value: '',
+            );
+            if (mounted) {
+              setState(() {
+                _operatorAuthState = {
+                  'status': 'error',
+                  'message': _operatorText(
+                    'Не удалось открыть системный браузер.',
+                    'Could not open the system browser.',
+                  ),
+                };
+              });
+            }
+          }
+        },
+        replace: true,
+      );
+      platformFFI.registerEventHandler(
+        'operator-auth-state',
+        'desktop-home-operator-auth-state',
+        (event) async {
+          final state = event['state'];
+          if (state is Map && mounted) {
+            setState(() {
+              _operatorAuthState = Map<String, dynamic>.from(state);
+            });
+          }
+        },
+        replace: true,
+      );
+      Future.microtask(() async {
+        final value = await bind.mainGetCommon(key: 'operator-auth-state');
+        final state = jsonDecode(value);
+        if (state is Map && mounted) {
+          setState(() {
+            _operatorAuthState = Map<String, dynamic>.from(state);
+          });
+        }
+      });
+    }
     _updateTimer = periodic_immediate(const Duration(seconds: 1), () async {
+      if (_isOperator && _operatorAuthState['status'] == 'authorized') {
+        await bind.mainGetCommon(key: 'operator-auth-authorized');
+      }
+      if (_isOperator && _operatorAuthState['status'] != 'authorized') {
+        return;
+      }
       await gFFI.serverModel.fetchID();
       final error = await bind.mainGetError();
       if (systemError != error) {
@@ -874,6 +1089,16 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   @override
   void dispose() {
     _uniLinksSubscription?.cancel();
+    if (_isOperator) {
+      platformFFI.unregisterEventHandler(
+        'operator-auth-browser',
+        'desktop-home-operator-auth-browser',
+      );
+      platformFFI.unregisterEventHandler(
+        'operator-auth-state',
+        'desktop-home-operator-auth-state',
+      );
+    }
     Get.delete<RxBool>(tag: 'stop-service');
     _updateTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);

@@ -2540,6 +2540,11 @@ connectMainDesktop(String id,
     String? password,
     String? connToken,
     bool? isSharedPassword}) async {
+  if (bind.mainGetCommonSync(key: 'soft-connect-role') == 'operator' &&
+      await bind.mainGetCommon(key: 'operator-auth-authorized') != 'true') {
+    showToast('${translate('Login')}: SOFT.Connect');
+    return;
+  }
   if (isFileTransfer) {
     await rustDeskWinManager.newFileTransfer(id,
         password: password,

@@ -117,6 +117,11 @@ pub fn core_main() -> Option<Vec<String>> {
     }
     #[cfg(feature = "flutter")]
     if _is_flutter_invoke_new_connection {
+        #[cfg(feature = "soft-connect-operator")]
+        if !crate::operator_auth::connection_allowed() {
+            log::warn!("Blocked Operator connection without an authorized SOFT.Connect session");
+            return None;
+        }
         return core_main_invoke_new_connection(std::env::args());
     }
     let click_setup = cfg!(windows) && args.is_empty() && crate::common::is_setup(&arg_exe);

@@ -2811,7 +2811,37 @@ pub fn main_get_printer_names() -> SyncReturn<String> {
 }
 
 pub fn main_get_common(key: String) -> String {
-    if key == "is-printer-installed" {
+    if key == "soft-connect-role" {
+        if cfg!(feature = "soft-connect-operator") {
+            return "operator".to_owned();
+        }
+        if cfg!(feature = "soft-connect-support") {
+            return "support".to_owned();
+        }
+        return "standard".to_owned();
+    } else if key == "operator-auth-state" {
+        #[cfg(all(
+            feature = "soft-connect-operator",
+            not(any(target_os = "android", target_os = "ios"))
+        ))]
+        return crate::operator_auth::status_json();
+        #[cfg(not(all(
+            feature = "soft-connect-operator",
+            not(any(target_os = "android", target_os = "ios"))
+        )))]
+        return r#"{"status":"unsupported","message":"Operator authorization is supported on Windows, macOS and Linux."}"#.to_owned();
+    } else if key == "operator-auth-authorized" {
+        #[cfg(all(
+            feature = "soft-connect-operator",
+            not(any(target_os = "android", target_os = "ios"))
+        ))]
+        return crate::operator_auth::is_authorized().to_string();
+        #[cfg(not(all(
+            feature = "soft-connect-operator",
+            not(any(target_os = "android", target_os = "ios"))
+        )))]
+        return false.to_string();
+    } else if key == "is-printer-installed" {
         #[cfg(target_os = "windows")]
         {
             return match remote_printer::is_rd_printer_installed(&get_app_name()) {
@@ -2874,6 +2904,21 @@ pub fn main_get_common_sync(key: String) -> SyncReturn<String> {
 }
 
 pub fn main_set_common(_key: String, _value: String) {
+    #[cfg(all(
+        feature = "soft-connect-operator",
+        not(any(target_os = "android", target_os = "ios"))
+    ))]
+    if _key == "operator-auth-start" {
+        crate::operator_auth::start_login();
+        return;
+    } else if _key == "operator-auth-cancel" {
+        crate::operator_auth::cancel_login();
+        return;
+    } else if _key == "operator-auth-logout" {
+        crate::operator_auth::logout();
+        return;
+    }
+
     #[cfg(target_os = "windows")]
     if _key == "install-printer" && crate::platform::is_win_10_or_greater() {
         std::thread::spawn(move || {
