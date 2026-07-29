@@ -56,7 +56,7 @@ function appIconSvg() {
   <circle cx="786" cy="226" r="16" fill="#31E7B1"/>
   <circle cx="786" cy="226" r="29" fill="none" stroke="#31E7B1" stroke-width="7" opacity="0.24"/>
   <path d="M512 714v84M407 818h210" fill="none" stroke="#355A79" stroke-width="30" stroke-linecap="round"/>
-  ${fox(270, 316, 484, 393, "url(#fox)", "url(#foxshadow)")}
+  ${fox(270, 244, 484, 393, "url(#fox)", "url(#foxshadow)")}
 </svg>`;
 }
 
@@ -92,7 +92,7 @@ function adaptiveForegroundSvg() {
   <path d="M310 190h-49a71 71 0 0 0-71 71v74M714 190h49a71 71 0 0 1 71 71v74M190 633v74a71 71 0 0 0 71 71h49M834 633v74a71 71 0 0 1-71 71h-49"
         fill="none" stroke="url(#frame)" stroke-width="30" stroke-linecap="round"/>
   <circle cx="770" cy="250" r="15" fill="#31E7B1"/>
-  ${fox(266, 313, 492, 399, "url(#fox)", "url(#foxshadow)")}
+  ${fox(266, 285, 492, 399, "url(#fox)", "url(#foxshadow)")}
 </svg>`;
 }
 
@@ -201,6 +201,45 @@ async function main() {
 
   const preview = await sharp(Buffer.from(appSvg)).resize(512, 512).png().toBuffer();
   fs.writeFileSync(path.join(__dirname, "brand", "soft-connect-desk-icon-preview.png"), preview);
+
+  const previewVariants = [
+    ["Desktop / Linux / macOS", appSvg],
+    ["Small 16–32 px", smallSvg],
+    ["Round launcher", roundSvg],
+    ["Android foreground", foregroundSvg],
+    ["System tray", trayColorSvg],
+  ];
+  const sheetComposites = [];
+  for (const [index, [label, svg]] of previewVariants.entries()) {
+    const left = 36 + index * 238;
+    const icon = await sharp(Buffer.from(svg)).resize(180, 180).png().toBuffer();
+    const card = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="216" height="260">
+      <rect x="1" y="1" width="214" height="258" rx="24" fill="#0B1724" stroke="#24435D" stroke-width="2"/>
+      <text x="108" y="232" text-anchor="middle" fill="#DDEBFA"
+            font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="600">${label}</text>
+    </svg>`);
+    sheetComposites.push({ input: card, left, top: 70 });
+    sheetComposites.push({ input: icon, left: left + 18, top: 88 });
+  }
+  sheetComposites.unshift({
+    input: Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="1220" height="54">
+      <text x="28" y="38" fill="#F4F8FC" font-family="Segoe UI, Arial, sans-serif"
+            font-size="27" font-weight="700">SOFT.Connect.Desk — icon family preview</text>
+    </svg>`),
+    left: 0,
+    top: 0,
+  });
+  await sharp({
+    create: {
+      width: 1264,
+      height: 366,
+      channels: 4,
+      background: "#050B12",
+    },
+  })
+    .composite(sheetComposites)
+    .png()
+    .toFile(path.join(__dirname, "brand", "soft-connect-desk-icon-family.png"));
 }
 
 main().catch((error) => {
