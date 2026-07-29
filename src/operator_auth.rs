@@ -2,6 +2,7 @@ use hbb_common::{
     anyhow::{anyhow, bail, Context, Result},
     base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _},
     lazy_static::lazy_static,
+    log,
     rand::{rngs::OsRng, RngCore},
 };
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
@@ -170,16 +171,19 @@ pub fn is_authorized() -> bool {
 }
 
 pub fn connection_allowed() -> bool {
-    if is_authorized() {
-        return true;
+    {
+        let state = lock_state();
+        if state.status == "authorized" && state.expires_at > now_unix() {
+            return true;
+        }
     }
-    read_stored_session()
-        .map(|session| {
-            session
-                .map(|session| session.expires_at > now_unix())
-                .unwrap_or(false)
-        })
-        .unwrap_or(false)
+    match validate_stored_session_for_connection() {
+        Ok(()) => true,
+        Err(err) => {
+            log::warn!("Blocked Operator connection: {err}");
+            false
+        }
+    }
 }
 
 pub fn start_login() {
@@ -347,6 +351,31 @@ fn refresh_stored_session() -> Result<StoredSession> {
         scope: session.scope,
         profile: session.profile,
     })
+}
+
+fn validate_stored_session_for_connection() -> Result<()> {
+    let stored = read_stored_session()?.context("защищённая OAuth-сессия отсутствует")?;
+    if stored.expires_at <= now_unix() {
+        bail!("OAuth-сессия истекла");
+    }
+    if !stored
+        .scope
+        .split_whitespace()
+        .any(|scope| scope == REQUIRED_PERMISSION)
+    {
+        bail!("OAuth-сессия не содержит Operator scope");
+    }
+    let access_token = read_secret(ACCESS_TOKEN_ENTRY)?;
+    let id_token = read_secret(ID_TOKEN_ENTRY)?;
+    let client = http_client()?;
+    let jwks = fetch_jwks(&client)?;
+    let access_claims = verify_access_token(&access_token, &jwks)?;
+    let id_claims = verify_id_token(&id_token, &jwks, None)?;
+    if access_claims.sub != id_claims.sub {
+        bail!("subject access token и ID token не совпадает");
+    }
+    verify_me(&client, &access_token, &access_claims)?;
+    Ok(())
 }
 
 fn login_flow() -> Result<VerifiedSession> {
