@@ -15,6 +15,7 @@ import shutil
 
 g_indent_unit = "\t"
 g_version = ""
+g_display_version = ""
 g_build_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
 
 # Replace the following links with your own in the custom arp properties.
@@ -41,6 +42,31 @@ g_arpsystemcomponent = {
 
 def default_revision_version():
     return int(datetime.datetime.now().timestamp() / 60)
+
+
+def to_msi_version(version):
+    match = re.fullmatch(
+        r"(\d+)\.(\d+)\.(\d+)(?:[-.]soft[.-]?(\d+))?(?:[-+].*)?",
+        version,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        raise ValueError(f"Invalid application version: {version}")
+
+    major, minor, patch, soft_revision = match.groups()
+    major = int(major)
+    minor = int(minor)
+    patch = int(patch)
+    build = patch
+    if soft_revision is not None:
+        build = patch * 100 + int(soft_revision)
+
+    if major > 255 or minor > 255 or build > 65535:
+        raise ValueError(
+            f"Version {version} cannot be represented as an MSI ProductVersion"
+        )
+    return f"{major}.{minor}.{build}"
+
 
 def make_parser():
     parser = argparse.ArgumentParser(description="Msi preprocess script.")
@@ -210,7 +236,7 @@ def gen_upgrade_info():
         upgrade_id = uuid.uuid4()
         to_insert_lines = [
             f'{indent}<Upgrade Id="{upgrade_id}">\n',
-            f'{indent}{g_indent_unit}<UpgradeVersion Property="OLD_VERSION_FOUND" Minimum="{major}.0.0" Maximum="{major}.99.99" IncludeMinimum="yes" IncludeMaximum="yes" OnlyDetect="no" IgnoreRemoveFailure="yes" MigrateFeatures="yes" />\n',
+            f'{indent}{g_indent_unit}<UpgradeVersion Property="OLD_VERSION_FOUND" Minimum="{major}.0.0" Maximum="{major}.255.65535" IncludeMinimum="yes" IncludeMaximum="yes" OnlyDetect="no" IgnoreRemoveFailure="yes" MigrateFeatures="yes" />\n',
             f"{indent}</Upgrade>\n",
         ]
 
@@ -317,7 +343,7 @@ def gen_custom_ARPSYSTEMCOMPONENT_True(args, dist_dir):
             f'{indent}<RegistryValue Type="string" Name="DisplayIcon" Value="[INSTALLFOLDER_INNER]{args.app_name}.exe" />\n'
         )
         lines_new.append(
-            f'{indent}<RegistryValue Type="string" Name="DisplayVersion" Value="{g_version}" />\n'
+            f'{indent}<RegistryValue Type="string" Name="DisplayVersion" Value="{g_display_version}" />\n'
         )
         lines_new.append(
             f'{indent}<RegistryValue Type="string" Name="Publisher" Value="{args.manufacturer}" />\n'
@@ -471,19 +497,16 @@ def init_global_vars(dist_dir, app_name, args):
         return output.decode("utf-8").strip()
 
     global g_version
+    global g_display_version
     global g_build_date
-    g_version = args.version.replace("-", ".")
-    if g_version == "":
-        g_version = read_process_output("--version")
-    version_pattern = re.compile(r"\d+\.\d+\.\d+.*")
-    if not version_pattern.match(g_version):
-        print(f"Error: version {g_version} not found in {dist_app}")
+    g_display_version = args.version.strip()
+    if g_display_version == "":
+        g_display_version = read_process_output("--version")
+    try:
+        g_version = to_msi_version(g_display_version)
+    except ValueError as error:
+        print(f"Error: {error}")
         return False
-    if g_version.count(".") == 2:
-        # https://github.com/dotnet/runtime/blob/5535e31a712343a63f5d7d796cd874e563e5ac14/src/libraries/System.Private.CoreLib/src/System/Version.cs
-        if args.revision_version < 0 or args.revision_version > 2147483647:
-            raise ValueError(f"Invalid revision version: {args.revision_version}")    
-        g_version = f"{g_version}.{args.revision_version}"
 
     g_build_date = read_process_output("--build-date")
     build_date_pattern = re.compile(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}")
