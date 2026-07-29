@@ -94,6 +94,8 @@ pub mod input {
 
 lazy_static::lazy_static! {
     pub static ref SOFTWARE_UPDATE_URL: Arc<Mutex<String>> = Default::default();
+    pub static ref SOFTWARE_UPDATE_FILE: Arc<Mutex<String>> = Default::default();
+    pub static ref SOFTWARE_UPDATE_SHA256: Arc<Mutex<String>> = Default::default();
     pub static ref DEVICE_ID: Arc<Mutex<String>> = Default::default();
     pub static ref DEVICE_NAME: Arc<Mutex<String>> = Default::default();
     static ref PUBLIC_IPV6_ADDR: Arc<Mutex<(Option<SocketAddr>, Option<Instant>)>> = Default::default();
@@ -939,50 +941,225 @@ pub fn is_modifier(evt: &KeyEvent) -> bool {
 }
 
 pub fn check_software_update() {
-    if is_custom_client() {
-        return;
-    }
     let opt = LocalConfig::get_option(keys::OPTION_ENABLE_CHECK_UPDATE);
     if config::option2bool(keys::OPTION_ENABLE_CHECK_UPDATE, &opt) {
         std::thread::spawn(move || allow_err!(do_check_software_update()));
     }
 }
 
-// No need to check `danger_accept_invalid_cert` for now.
-// Because the url is always `https://api.rustdesk.com/version/latest`.
+const SOFT_CONNECT_RELEASES_API: &str =
+    "https://api.github.com/repos/SalesOfTech/SOFT.Connect.Desk/releases";
+
+#[derive(Debug, serde::Deserialize)]
+struct SoftConnectRelease {
+    tag_name: String,
+    html_url: String,
+    draft: bool,
+    prerelease: bool,
+    assets: Vec<SoftConnectReleaseAsset>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct SoftConnectReleaseAsset {
+    name: String,
+    browser_download_url: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct SoftConnectUpdateManifest {
+    version: String,
+    tag: String,
+    channel: String,
+    assets: Vec<SoftConnectUpdateManifestAsset>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct SoftConnectUpdateManifestAsset {
+    name: String,
+    sha256: String,
+}
+
+fn soft_connect_role_name() -> &'static str {
+    if cfg!(feature = "soft-connect-support") {
+        "Support"
+    } else {
+        "Operator"
+    }
+}
+
+fn soft_connect_update_asset_name() -> ResultType<String> {
+    let role = soft_connect_role_name();
+    #[cfg(target_os = "windows")]
+    {
+        let arch = if cfg!(target_arch = "aarch64") {
+            "arm64"
+        } else if cfg!(target_arch = "x86_64") {
+            "x64"
+        } else {
+            bail!("Unsupported Windows update architecture");
+        };
+        if crate::platform::windows::is_msi_installed().unwrap_or(false) {
+            return Ok(format!("SOFT.Connect.Desk-{role}-windows-{arch}.msi"));
+        }
+        let arch_part = if arch == "arm64" { "arm64-" } else { "" };
+        return Ok(format!(
+            "SOFT.Connect.Desk-{role}-{arch_part}install.exe"
+        ));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let arch = if cfg!(target_arch = "aarch64") {
+            "arm64"
+        } else if cfg!(target_arch = "x86_64") {
+            "x86_64"
+        } else {
+            bail!("Unsupported macOS update architecture");
+        };
+        return Ok(format!(
+            "SOFT.Connect.Desk-{role}-macos-{arch}-unsigned.dmg"
+        ));
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let arch = if cfg!(target_arch = "aarch64") {
+            "aarch64"
+        } else if cfg!(target_arch = "x86_64") {
+            "x64"
+        } else {
+            bail!("Unsupported Linux update architecture");
+        };
+        return Ok(format!(
+            "SOFT.Connect.Desk-{role}-linux-{arch}.AppImage"
+        ));
+    }
+    #[cfg(target_os = "android")]
+    {
+        return Ok(format!(
+            "SOFT.Connect.Desk-{role}-android-universal.apk"
+        ));
+    }
+    #[allow(unreachable_code)]
+    bail!("Software updates are not supported on this platform")
+}
+
+fn soft_connect_version_key(version: &str) -> (u64, u64, u64, u64, u8, u64) {
+    let normalized = version
+        .trim()
+        .trim_start_matches('v')
+        .to_ascii_lowercase();
+    let mut parts = normalized.split('-');
+    let core = parts.next().unwrap_or_default();
+    let suffix = parts.collect::<Vec<_>>().join("-");
+    let mut core_numbers = core
+        .split('.')
+        .map(|part| part.parse::<u64>().unwrap_or(0));
+    let major = core_numbers.next().unwrap_or(0);
+    let minor = core_numbers.next().unwrap_or(0);
+    let patch = core_numbers.next().unwrap_or(0);
+    let suffix_parts = suffix
+        .split(|c| c == '.' || c == '-')
+        .collect::<Vec<_>>();
+    let soft_revision = suffix_parts
+        .windows(2)
+        .find(|window| window[0] == "soft")
+        .and_then(|window| window[1].parse::<u64>().ok())
+        .unwrap_or(0);
+    let (stage, stage_number) = ["preview", "alpha", "beta", "rc"]
+        .iter()
+        .enumerate()
+        .find_map(|(index, marker)| {
+            suffix_parts
+                .iter()
+                .position(|part| part == marker)
+                .map(|position| {
+                    let number = suffix_parts
+                        .get(position + 1)
+                        .and_then(|part| part.parse::<u64>().ok())
+                        .unwrap_or(0);
+                    (index as u8, number)
+                })
+        })
+        .unwrap_or((4, 0));
+    (major, minor, patch, soft_revision, stage, stage_number)
+}
+
+fn preview_updates_enabled() -> bool {
+    let value = LocalConfig::get_option(keys::OPTION_ENABLE_PREVIEW_UPDATES);
+    config::option2bool(keys::OPTION_ENABLE_PREVIEW_UPDATES, &value)
+}
+
 #[tokio::main(flavor = "current_thread")]
 pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
-    let (request, url) =
-        hbb_common::version_check_request(hbb_common::VER_TYPE_RUSTDESK_CLIENT.to_string());
-    let proxy_conf = Config::get_socks();
-    let tls_url = get_url_for_tls(&url, &proxy_conf);
-    let tls_type = get_cached_tls_type(tls_url);
-    let is_tls_not_cached = tls_type.is_none();
-    let tls_type = tls_type.unwrap_or(TlsType::Rustls);
-    let client = create_http_client_async(tls_type, false);
-    let latest_release_response = match client.post(&url).json(&request).send().await {
-        Ok(resp) => {
-            upsert_tls_cache(tls_url, tls_type, false);
-            resp
-        }
-        Err(err) => {
-            if is_tls_not_cached && err.is_request() {
-                let tls_type = TlsType::NativeTls;
-                let client = create_http_client_async(tls_type, false);
-                let resp = client.post(&url).json(&request).send().await?;
-                upsert_tls_cache(tls_url, tls_type, false);
-                resp
-            } else {
-                return Err(err.into());
-            }
-        }
+    let include_preview = preview_updates_enabled();
+    let url = if include_preview {
+        format!("{SOFT_CONNECT_RELEASES_API}?per_page=30")
+    } else {
+        format!("{SOFT_CONNECT_RELEASES_API}/latest")
     };
-    let bytes = latest_release_response.bytes().await?;
-    let resp: hbb_common::VersionCheckResponse = serde_json::from_slice(&bytes)?;
-    let response_url = resp.url;
-    let latest_release_version = response_url.rsplit('/').next().unwrap_or_default();
+    let client = create_http_client_async(TlsType::Rustls, false);
+    let response = client
+        .get(&url)
+        .header(reqwest::header::USER_AGENT, "SOFT.Connect.Desk-Updater")
+        .header(reqwest::header::ACCEPT, "application/vnd.github+json")
+        .send()
+        .await?
+        .error_for_status()?;
+    let bytes = response.bytes().await?;
+    let releases = if include_preview {
+        serde_json::from_slice::<Vec<SoftConnectRelease>>(&bytes)?
+    } else {
+        vec![serde_json::from_slice::<SoftConnectRelease>(&bytes)?]
+    };
+    let expected_asset = soft_connect_update_asset_name()?;
+    let current_key = soft_connect_version_key(crate::VERSION);
+    let newest = releases
+        .into_iter()
+        .filter(|release| !release.draft && (include_preview || !release.prerelease))
+        .filter(|release| {
+            release
+                .assets
+                .iter()
+                .any(|asset| asset.name == expected_asset)
+        })
+        .filter(|release| soft_connect_version_key(&release.tag_name) > current_key)
+        .max_by_key(|release| soft_connect_version_key(&release.tag_name));
 
-    if get_version_number(&latest_release_version) > get_version_number(crate::VERSION) {
+    if let Some(release) = newest {
+        let manifest_url = release
+            .assets
+            .iter()
+            .find(|asset| asset.name == "update-manifest.json")
+            .map(|asset| asset.browser_download_url.clone())
+            .context("Release has no update-manifest.json")?;
+        let manifest: SoftConnectUpdateManifest = client
+            .get(manifest_url)
+            .header(reqwest::header::USER_AGENT, "SOFT.Connect.Desk-Updater")
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        let expected_channel = if release.prerelease {
+            "preview"
+        } else {
+            "stable"
+        };
+        if manifest.tag != release.tag_name
+            || manifest.version != release.tag_name.trim_start_matches('v')
+            || manifest.channel != expected_channel
+        {
+            bail!("Release update manifest does not match its GitHub release");
+        }
+        let expected_sha256 = manifest
+            .assets
+            .iter()
+            .find(|asset| asset.name == expected_asset)
+            .map(|asset| asset.sha256.to_ascii_lowercase())
+            .filter(|sha256| {
+                sha256.len() == 64 && sha256.chars().all(|c| c.is_ascii_hexdigit())
+            })
+            .context("Compatible update is missing from update manifest")?;
+        let response_url = release.html_url;
         #[cfg(feature = "flutter")]
         {
             let mut m = HashMap::new();
@@ -993,8 +1170,12 @@ pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
             }
         }
         *SOFTWARE_UPDATE_URL.lock().unwrap() = response_url;
+        *SOFTWARE_UPDATE_FILE.lock().unwrap() = expected_asset;
+        *SOFTWARE_UPDATE_SHA256.lock().unwrap() = expected_sha256;
     } else {
         *SOFTWARE_UPDATE_URL.lock().unwrap() = "".to_string();
+        *SOFTWARE_UPDATE_FILE.lock().unwrap() = "".to_string();
+        *SOFTWARE_UPDATE_SHA256.lock().unwrap() = "".to_string();
     }
     Ok(())
 }
@@ -2631,6 +2812,22 @@ mod tests {
         time::{interval, interval_at, sleep, Duration, Instant, Interval},
     };
     use std::collections::HashSet;
+
+    #[test]
+    fn soft_connect_update_versions_are_ordered_by_channel_and_revision() {
+        assert!(
+            soft_connect_version_key("v1.4.9-soft.4-preview.2")
+                > soft_connect_version_key("v1.4.9-soft.4-preview.1")
+        );
+        assert!(
+            soft_connect_version_key("v1.4.9-soft.4")
+                > soft_connect_version_key("v1.4.9-soft.4-preview.99")
+        );
+        assert!(
+            soft_connect_version_key("v1.4.9-soft.5-preview.1")
+                > soft_connect_version_key("v1.4.9-soft.4")
+        );
+    }
 
     #[inline]
     fn get_timestamp_secs() -> u128 {

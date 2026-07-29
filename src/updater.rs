@@ -1,7 +1,8 @@
 use crate::{common::do_check_software_update, hbbs_http::create_http_client_with_url};
 use hbb_common::{bail, config, log, ResultType};
+use sha2::{Digest, Sha256};
 use std::{
-    io::Write,
+    io::{Read, Write},
     path::PathBuf,
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -119,7 +120,7 @@ fn start_auto_update_check_(rx_msg: Receiver<UpdateMsg>) {
 
 fn check_update(manually: bool) -> ResultType<()> {
     #[cfg(target_os = "windows")]
-    let update_msi = crate::platform::is_msi_installed()? && !crate::is_custom_client();
+    let update_msi = crate::platform::is_msi_installed()?;
     if !(manually || config::Config::get_bool_option(config::keys::OPTION_ALLOW_AUTO_UPDATE)) {
         return Ok(());
     }
@@ -132,26 +133,20 @@ fn check_update(manually: bool) -> ResultType<()> {
     if update_url.is_empty() {
         log::debug!("No update available.");
     } else {
-        let download_url = update_url.replace("tag", "download");
-        let version = download_url.split('/').last().unwrap_or_default();
-        #[cfg(target_os = "windows")]
-        let download_url = if cfg!(feature = "flutter") {
-            let Some(arch) = crate::platform::windows::release_arch_suffix() else {
-                bail!(
-                    "Unsupported Windows release architecture: {}",
-                    std::env::consts::ARCH
-                );
-            };
-            format!(
-                "{}/rustdesk-{}-{}.{}",
-                download_url,
-                version,
-                arch,
-                if update_msi { "msi" } else { "exe" }
-            )
-        } else {
-            format!("{}/rustdesk-{}-x86-sciter.exe", download_url, version)
-        };
+        let release_download_url = update_url.replace("/tag/", "/download/");
+        let version = release_download_url
+            .split('/')
+            .last()
+            .unwrap_or_default()
+            .to_owned();
+        let update_file = crate::common::SOFTWARE_UPDATE_FILE
+            .lock()
+            .unwrap()
+            .clone();
+        if update_file.is_empty() {
+            bail!("No compatible SOFT.Connect.Desk update asset");
+        }
+        let download_url = format!("{release_download_url}/{update_file}");
         log::debug!("New version available: {}", &version);
         let client = create_http_client_with_url(&download_url);
         let Some(file_path) = get_download_file_from_url(&download_url) else {
@@ -192,6 +187,7 @@ fn check_update(manually: bool) -> ResultType<()> {
             let mut file = std::fs::File::create(&file_path)?;
             file.write_all(&file_data)?;
         }
+        verify_downloaded_update(&file_path)?;
         // We have checked if the `conns` is empty before, but we need to check again.
         // No need to care about the downloaded file here, because it's rare case that the `conns` are empty
         // before the download, but not empty after the download.
@@ -289,6 +285,36 @@ fn update_new_version(update_msi: bool, version: &str, file_path: &PathBuf) {
             file_path.display()
         );
     }
+}
+
+pub fn verify_downloaded_update(file_path: &PathBuf) -> ResultType<()> {
+    let expected = crate::common::SOFTWARE_UPDATE_SHA256
+        .lock()
+        .unwrap()
+        .clone();
+    if expected.is_empty() {
+        bail!("Missing expected update SHA-256");
+    }
+    let mut file = std::fs::File::open(file_path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let count = file.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        hasher.update(&buffer[..count]);
+    }
+    let actual = hex::encode(hasher.finalize());
+    if actual != expected {
+        std::fs::remove_file(file_path).ok();
+        bail!(
+            "Downloaded update checksum mismatch (expected {}, got {})",
+            expected,
+            actual
+        );
+    }
+    Ok(())
 }
 
 pub fn get_download_file_from_url(url: &str) -> Option<PathBuf> {

@@ -25,7 +25,7 @@ const commonDefs = `
     <stop offset="0.5" stop-color="#071827"/>
     <stop offset="1" stop-color="#030A12"/>
   </linearGradient>
-  <linearGradient id="frame" x1="174" y1="170" x2="850" y2="716" gradientUnits="userSpaceOnUse">
+  <linearGradient id="connection" x1="690" y1="684" x2="890" y2="892" gradientUnits="userSpaceOnUse">
     <stop stop-color="#4BE8FF"/>
     <stop offset="0.54" stop-color="#1786FF"/>
     <stop offset="1" stop-color="#7058FF"/>
@@ -48,15 +48,14 @@ function appIconSvg() {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>${commonDefs}</defs>
-  <rect x="30" y="30" width="964" height="964" rx="224" fill="url(#bg)"/>
-  <rect x="48" y="48" width="928" height="928" rx="207" fill="none" stroke="#31526E" stroke-width="7" opacity="0.72"/>
-  <rect x="174" y="166" width="676" height="548" rx="112" fill="#050F1B" stroke="#163A59" stroke-width="24"/>
-  <path d="M286 166h-45a67 67 0 0 0-67 67v76M738 166h45a67 67 0 0 1 67 67v76M174 571v76a67 67 0 0 0 67 67h45M850 571v76a67 67 0 0 1-67 67h-45"
-        fill="none" stroke="url(#frame)" stroke-width="28" stroke-linecap="round"/>
-  <circle cx="786" cy="226" r="16" fill="#31E7B1"/>
-  <circle cx="786" cy="226" r="29" fill="none" stroke="#31E7B1" stroke-width="7" opacity="0.24"/>
-  <path d="M512 714v84M407 818h210" fill="none" stroke="#355A79" stroke-width="30" stroke-linecap="round"/>
-  ${fox(270, 244, 484, 393, "url(#fox)", "url(#foxshadow)")}
+  <rect x="34" y="34" width="956" height="956" rx="228" fill="url(#bg)"/>
+  <rect x="54" y="54" width="916" height="916" rx="208" fill="none" stroke="#2A4A64" stroke-width="8" opacity="0.82"/>
+  ${fox(208, 188, 608, 589, "url(#fox)", "url(#foxshadow)")}
+  <circle cx="794" cy="790" r="126" fill="#071827"/>
+  <circle cx="794" cy="790" r="108" fill="url(#connection)"/>
+  <path d="M767 770l50 43" fill="none" stroke="#FFFFFF" stroke-width="15" stroke-linecap="round"/>
+  <circle cx="752" cy="758" r="18" fill="#FFFFFF"/>
+  <circle cx="832" cy="826" r="18" fill="#FFFFFF"/>
 </svg>`;
 }
 
@@ -64,11 +63,9 @@ function smallIconSvg() {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>${commonDefs}</defs>
-  <rect x="30" y="30" width="964" height="964" rx="224" fill="url(#bg)"/>
-  <rect x="52" y="52" width="920" height="920" rx="202" fill="none" stroke="#31526E" stroke-width="10" opacity="0.78"/>
-  <path d="M286 154h-60a72 72 0 0 0-72 72v92M738 154h60a72 72 0 0 1 72 72v92M154 706v92a72 72 0 0 0 72 72h60M870 706v92a72 72 0 0 1-72 72h-60"
-        fill="none" stroke="url(#frame)" stroke-width="40" stroke-linecap="round"/>
-  ${fox(182, 244, 660, 536, "url(#fox)")}
+  <rect x="34" y="34" width="956" height="956" rx="228" fill="url(#bg)"/>
+  <rect x="58" y="58" width="908" height="908" rx="202" fill="none" stroke="#2A4A64" stroke-width="12" opacity="0.88"/>
+  ${fox(202, 218, 620, 600, "url(#fox)")}
 </svg>`;
 }
 
@@ -77,10 +74,13 @@ function roundIconSvg() {
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>${commonDefs}</defs>
   <circle cx="512" cy="512" r="494" fill="url(#bg)"/>
-  <circle cx="512" cy="512" r="474" fill="none" stroke="#31526E" stroke-width="8" opacity="0.72"/>
-  <path d="M306 174h-64a68 68 0 0 0-68 68v82M718 174h64a68 68 0 0 1 68 68v82M174 700v82a68 68 0 0 0 68 68h64M850 700v82a68 68 0 0 1-68 68h-64"
-        fill="none" stroke="url(#frame)" stroke-width="32" stroke-linecap="round"/>
-  ${fox(222, 277, 580, 471, "url(#fox)", "url(#foxshadow)")}
+  <circle cx="512" cy="512" r="470" fill="none" stroke="#2A4A64" stroke-width="9" opacity="0.82"/>
+  ${fox(214, 204, 596, 577, "url(#fox)", "url(#foxshadow)")}
+  <circle cx="790" cy="786" r="122" fill="#071827"/>
+  <circle cx="790" cy="786" r="102" fill="url(#connection)"/>
+  <path d="M764 768l48 41" fill="none" stroke="#FFFFFF" stroke-width="15" stroke-linecap="round"/>
+  <circle cx="750" cy="756" r="17" fill="#FFFFFF"/>
+  <circle cx="826" cy="821" r="17" fill="#FFFFFF"/>
 </svg>`;
 }
 
@@ -88,11 +88,12 @@ function adaptiveForegroundSvg() {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>${commonDefs}</defs>
-  <rect x="190" y="190" width="644" height="588" rx="118" fill="#050F1B" stroke="#163A59" stroke-width="22"/>
-  <path d="M310 190h-49a71 71 0 0 0-71 71v74M714 190h49a71 71 0 0 1 71 71v74M190 633v74a71 71 0 0 0 71 71h49M834 633v74a71 71 0 0 1-71 71h-49"
-        fill="none" stroke="url(#frame)" stroke-width="30" stroke-linecap="round"/>
-  <circle cx="770" cy="250" r="15" fill="#31E7B1"/>
-  ${fox(266, 285, 492, 399, "url(#fox)", "url(#foxshadow)")}
+  ${fox(246, 232, 532, 515, "url(#fox)", "url(#foxshadow)")}
+  <circle cx="748" cy="744" r="108" fill="#071827"/>
+  <circle cx="748" cy="744" r="91" fill="url(#connection)"/>
+  <path d="M725 728l42 36" fill="none" stroke="#FFFFFF" stroke-width="13" stroke-linecap="round"/>
+  <circle cx="713" cy="718" r="15" fill="#FFFFFF"/>
+  <circle cx="780" cy="775" r="15" fill="#FFFFFF"/>
 </svg>`;
 }
 

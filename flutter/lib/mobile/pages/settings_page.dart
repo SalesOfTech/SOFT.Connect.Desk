@@ -72,6 +72,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
   var _ignoreBatteryOpt = false;
   var _enableStartOnBoot = false;
   var _checkUpdateOnStartup = false;
+  var _enablePreviewUpdates = false;
   var _showTerminalExtraKeys = false;
   var _floatingWindowDisabled = false;
   var _keepScreenOn = KeepScreenOn.duringControlled; // relay on floating window
@@ -186,6 +187,12 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
       if (checkUpdateOnStartup != _checkUpdateOnStartup) {
         update = true;
         _checkUpdateOnStartup = checkUpdateOnStartup;
+      }
+      var enablePreviewUpdates =
+          mainGetLocalBoolOptionSync(kOptionEnablePreviewUpdates);
+      if (enablePreviewUpdates != _enablePreviewUpdates) {
+        update = true;
+        _enablePreviewUpdates = enablePreviewUpdates;
       }
 
       var floatingWindowDisabled =
@@ -594,17 +601,28 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
           gFFI.invokeMethod(AndroidChannel.kSetStartOnBootOpt, toValue);
         }));
 
-    if (!bind.isCustomClient()) {
+    enhancementsTiles.add(
+      SettingsTile.switchTile(
+        initialValue: _checkUpdateOnStartup,
+        title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(translate('Check for software update on startup')),
+        ]),
+        onToggle: (bool toValue) async {
+          await mainSetLocalBoolOption(kOptionEnableCheckUpdate, toValue);
+          setState(() => _checkUpdateOnStartup = toValue);
+        },
+      ),
+    );
+    if (!incomingOnly) {
       enhancementsTiles.add(
         SettingsTile.switchTile(
-          initialValue: _checkUpdateOnStartup,
-          title:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(translate('Check for software update on startup')),
+          initialValue: _enablePreviewUpdates,
+          title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(translate('Receive preview updates')),
           ]),
           onToggle: (bool toValue) async {
-            await mainSetLocalBoolOption(kOptionEnableCheckUpdate, toValue);
-            setState(() => _checkUpdateOnStartup = toValue);
+            await mainSetLocalBoolOption(kOptionEnablePreviewUpdates, toValue);
+            setState(() => _enablePreviewUpdates = toValue);
           },
         ),
       );
