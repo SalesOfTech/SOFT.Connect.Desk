@@ -22,7 +22,7 @@
 		<Property Id="ARPURLINFOABOUT" Value="https://connect.salesof.tech" />
 		<Property Id="ARPURLUPDATEINFO" Value="https://github.com/SalesOfTech/SOFT.Connect.Desk/releases" />-->
 
-		<Property Id="ARPPRODUCTICON" Value="AppIcon" />
+		<Property Id="ARPPRODUCTICON" Value="SoftConnectDeskIconV2" />
 
 		<!--$ArpStart$-->
 		<!--$ArpEnd$-->

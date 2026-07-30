@@ -2,6 +2,7 @@ fn main() {
     #[cfg(windows)]
     {
         use std::io::Write;
+        println!("cargo:rerun-if-changed=../../res/icon.ico");
         let mut res = winres::WindowsResource::new();
         res.set_icon("../../res/icon.ico")
             .set_language(winapi::um::winnt::MAKELANGID(

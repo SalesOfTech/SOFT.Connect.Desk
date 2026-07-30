@@ -115,6 +115,16 @@ if (-not (Test-Path -LiteralPath $vcpkgInstalled)) {
 
 New-Item -ItemType Directory -Force -Path $distRoot | Out-Null
 
+# Keep a standalone copy in the Flutter bundle. The Windows runner loads this
+# file for the caption icon, and installers use it as an explicit shortcut icon
+# path so Explorer does not keep showing a stale executable icon from its cache.
+$brandIcon = Join-Path $sourceRoot "res\icon.ico"
+$flutterAssetIcon = Join-Path $sourceRoot "flutter\assets\icon.ico"
+if (-not (Test-Path -LiteralPath $brandIcon)) {
+    throw "Brand icon not found: $brandIcon"
+}
+Copy-Item -LiteralPath $brandIcon -Destination $flutterAssetIcon -Force
+
 function Clear-RoleOutput {
     param([string]$Path)
 

@@ -27,6 +27,7 @@ def save_ico(prefix: str, output: Path) -> None:
 
 save_ico("app", RES / "icon.ico")
 save_ico("app", ROOT / "flutter" / "windows" / "runner" / "resources" / "app_icon.ico")
+save_ico("app", ROOT / "flutter" / "assets" / "icon.ico")
 save_ico("tray", RES / "tray-icon.ico")
 
 mac_source = rgba(BUILD / "app-1024.png")

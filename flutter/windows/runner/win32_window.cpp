@@ -201,6 +201,14 @@ bool Win32Window::CreateAndShow(const std::wstring& title,
     return false;
   }
 
+  // Assign both icons to the window itself as well as the registered class.
+  // This avoids a default/stale caption icon if another desktop plugin changes
+  // window-class state after registration.
+  SendMessageW(window, WM_SETICON, ICON_BIG,
+               GetClassLongPtrW(window, GCLP_HICON));
+  SendMessageW(window, WM_SETICON, ICON_SMALL,
+               GetClassLongPtrW(window, GCLP_HICONSM));
+
   if (!showOnTaskBar) {
     // hide from taskbar
     HRESULT hr;
