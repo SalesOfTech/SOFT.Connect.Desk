@@ -667,24 +667,17 @@ jobs:
             dist/linux/SHA256SUMS-ArchLinux.txt
 
   macos:
-    name: macOS ${{ matrix.arch }}
+    name: macOS ${{ matrix.arch }} ${{ matrix.role }}
     needs: bridge
     if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'macos'
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - arch: x86_64
-            runner: macos-15-intel
-            target: x86_64-apple-darwin
-            vcpkg_triplet: x64-osx
-            minimum_macos: "10.14"
-          - arch: arm64
-            runner: macos-14
-            target: aarch64-apple-darwin
-            vcpkg_triplet: arm64-osx
-            minimum_macos: "12.3"
-    runs-on: ${{ matrix.runner }}
+        arch:
+          - x86_64
+          - arm64
+        role: ${{ fromJSON(github.event_name == 'workflow_dispatch' && (inputs.role == 'all' && '["support","operator"]' || format('["{0}"]', inputs.role)) || '["support","operator"]') }}
+    runs-on: ${{ matrix.arch == 'x86_64' && 'macos-15-intel' || 'macos-14' }}
     steps:
       - name: Checkout source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -731,7 +724,7 @@ jobs:
         uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
         with:
           toolchain: ${{ env.MAC_RUST_VERSION }}
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.arch == 'x86_64' && 'x86_64-apple-darwin' || 'aarch64-apple-darwin' }}
           components: rustfmt
 
       - name: Cache Rust build
@@ -756,14 +749,14 @@ jobs:
         shell: bash
         run: |
           "${VCPKG_ROOT}/vcpkg" install \
-            --triplet="${{ matrix.vcpkg_triplet }}" \
-            --host-triplet="${{ matrix.vcpkg_triplet }}" \
+            --triplet="${{ matrix.arch == 'x86_64' && 'x64-osx' || 'arm64-osx' }}" \
+            --host-triplet="${{ matrix.arch == 'x86_64' && 'x64-osx' || 'arm64-osx' }}" \
             --x-install-root="${VCPKG_ROOT}/installed"
 
       - name: Set minimum macOS version
         shell: bash
         run: |
-          min="${{ matrix.minimum_macos }}"
+          min="${{ matrix.arch == 'x86_64' && '10.14' || '12.3' }}"
           sed -i.bak -E "s/MACOSX_DEPLOYMENT_TARGET=[0-9.]+/MACOSX_DEPLOYMENT_TARGET=${min}/" build.py
           sed -i.bak -E "s/platform :osx, '[0-9.]+'/platform :osx, '${min}'/" flutter/macos/Podfile
           sed -i.bak -E "s/osx_minimum_system_version = \"[0-9.]+\"/osx_minimum_system_version = \"${min}\"/" Cargo.toml
@@ -772,22 +765,13 @@ jobs:
       - name: Build unsigned macOS clients
         shell: bash
         env:
-          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.minimum_macos }}
-        run: |
-          case "${BUILD_ROLE}" in
-            support) roles=(support) ;;
-            operator) roles=(operator) ;;
-            all) roles=(support operator) ;;
-            *) echo "Unknown role: ${BUILD_ROLE}" >&2; exit 2 ;;
-          esac
-          for role in "${roles[@]}"; do
-            bash .github/scripts/build-macos-unsigned.sh "${role}"
-          done
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.arch == 'x86_64' && '10.14' || '12.3' }}
+        run: bash .github/scripts/build-macos-unsigned.sh "${{ matrix.role }}"
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: SOFT.Connect.Desk-macOS-${{ matrix.arch }}-${{ env.BUILD_ROLE }}
+          name: SOFT.Connect.Desk-macOS-${{ matrix.arch }}-${{ matrix.role }}
           retention-days: 14
           path: dist/macos
 
