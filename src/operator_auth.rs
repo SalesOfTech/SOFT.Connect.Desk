@@ -46,8 +46,11 @@ const ACCESS_TOKEN_ENTRY: &str = "operator-access-token";
 const ID_TOKEN_ENTRY: &str = "operator-id-token";
 const REFRESH_TOKEN_ENTRY: &str = "operator-refresh-token";
 const SESSION_ENTRY: &str = "operator-session";
-const SECRET_DIRECT_LIMIT: usize = 2_000;
-const SECRET_PART_SIZE: usize = 1_800;
+// Windows Credential Manager allows a 2560-byte credential blob. keyring
+// stores passwords as UTF-16, so ASCII data is limited to 1280 characters.
+// Keep headroom for platform differences and segment every larger value.
+const SECRET_DIRECT_LIMIT: usize = 1_200;
+const SECRET_PART_SIZE: usize = 1_200;
 const SECRET_MAX_PARTS: usize = 32;
 const SECRET_MANIFEST_PREFIX: &str = "SCDS1";
 
