@@ -76,7 +76,7 @@ if git -C "${flutter_sdk_root}" apply --check "${flutter_patch}" 2>/dev/null; th
   git -C "${flutter_sdk_root}" apply "${flutter_patch}"
 fi
 
-cargo +1.75.0 build \
+cargo +1.81.0 build \
   --locked \
   --lib \
   --release \
