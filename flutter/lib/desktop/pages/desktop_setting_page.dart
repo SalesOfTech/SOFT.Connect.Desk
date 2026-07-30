@@ -12,6 +12,7 @@ import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_home_page.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_tab_page.dart';
 import 'package:flutter_hbb/desktop/widgets/remote_toolbar.dart';
+import 'package:flutter_hbb/desktop/widgets/update_progress.dart';
 import 'package:flutter_hbb/mobile/widgets/dialog.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/models/printer_model.dart';
@@ -58,6 +59,7 @@ enum SettingsTabKey {
   plugin,
   account,
   printer,
+  updates,
   about,
 }
 
@@ -71,7 +73,11 @@ class DesktopSettingPage extends StatefulWidget {
         bind.mainGetBuildinOption(key: kOptionHideSecuritySetting) != 'Y')
       SettingsTabKey.safety,
     if (!bind.isDisableSettings() &&
-        bind.mainGetBuildinOption(key: kOptionHideNetworkSetting) != 'Y')
+        bind.mainGetBuildinOption(key: kOptionHideNetworkSetting) != 'Y' &&
+        !(bind.mainGetBuildinOption(key: kOptionHideServerSetting) == 'Y' &&
+            (isWeb ||
+                bind.mainGetBuildinOption(key: kOptionHideProxySetting) ==
+                    'Y')))
       SettingsTabKey.network,
     if (!bind.isIncomingOnly()) SettingsTabKey.display,
     if (!isWeb && !bind.isIncomingOnly() && bind.pluginFeatureIsEnabled())
@@ -80,6 +86,7 @@ class DesktopSettingPage extends StatefulWidget {
     if (isWindows &&
         bind.mainGetBuildinOption(key: kOptionHideRemotePrinterSetting) != 'Y')
       SettingsTabKey.printer,
+    if (!isWeb) SettingsTabKey.updates,
     SettingsTabKey.about,
   ];
 
@@ -208,6 +215,10 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
           settingTabs
               .add(_TabInfo(tab, 'Printer', Icons.print_outlined, Icons.print));
           break;
+        case SettingsTabKey.updates:
+          settingTabs.add(_TabInfo(tab, _updatesText('Updates'),
+              Icons.system_update_alt_outlined, Icons.system_update_alt));
+          break;
         case SettingsTabKey.about:
           settingTabs
               .add(_TabInfo(tab, 'About', Icons.info_outline, Icons.info));
@@ -241,6 +252,9 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
           break;
         case SettingsTabKey.printer:
           children.add(const _Printer());
+          break;
+        case SettingsTabKey.updates:
+          children.add(const _Updates());
           break;
         case SettingsTabKey.about:
           children.add(const _About());
@@ -485,7 +499,6 @@ class _GeneralState extends State<_General> {
   Widget other() {
     final incomingOnly = bind.isIncomingOnly();
     final outgoingOnly = bind.isOutgoingOnly();
-    final showAutoUpdate = isWindows;
     final children = <Widget>[
       if (!isWeb && !incomingOnly)
         _OptionCheckBox(context, 'Confirm before closing multiple tabs',
@@ -544,27 +557,6 @@ class _GeneralState extends State<_General> {
             ),
           ),
       ],
-      if (!isWeb)
-        _OptionCheckBox(
-          context,
-          'Check for software update on startup',
-          kOptionEnableCheckUpdate,
-          isServer: false,
-        ),
-      if (!isWeb && !incomingOnly)
-        _OptionCheckBox(
-          context,
-          'Receive preview updates',
-          kOptionEnablePreviewUpdates,
-          isServer: false,
-        ),
-      if (showAutoUpdate)
-        _OptionCheckBox(
-          context,
-          'Auto update',
-          kOptionAllowAutoUpdate,
-          isServer: true,
-        ),
       if (isWindows && !outgoingOnly)
         _OptionCheckBox(
           context,
@@ -1632,8 +1624,9 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
         bind.mainGetBuildinOption(key: kOptionHideServerSetting) == 'Y';
     final hideProxy =
         isWeb || bind.mainGetBuildinOption(key: kOptionHideProxySetting) == 'Y';
-    final hideWebSocket = isWeb ||
-        bind.mainGetBuildinOption(key: kOptionHideWebSocketSetting) == 'Y';
+    // SOFT.Connect.Desk uses the OSS server, where WebSocket transport is not
+    // available. Do not expose a switch that cannot work with our deployment.
+    final hideWebSocket = true;
 
     if (hideServer && hideProxy && hideWebSocket) {
       return Offstage();
@@ -1765,8 +1758,7 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
                               icon: Icons.lan_outlined,
                               title: 'Disable UDP',
                               showTooltip: true,
-                              tooltipMessage:
-                                  '${translate('disable-udp-tip')}\n\n${translate('server-oss-not-support-tip')}',
+                              tooltipMessage: translate('disable-udp-tip'),
                               trailing: Switch(
                                 value: bind.mainGetOptionSync(
                                         key: kOptionDisableUdp) ==
@@ -2403,6 +2395,174 @@ class __PrinterState extends State<_Printer> {
         enabled: printerOptions.action != kValuePrinterIncomingJobDismiss,
       )
     ]);
+  }
+}
+
+String _updatesText(String key) {
+  final russian = Platform.localeName.toLowerCase().startsWith('ru');
+  if (!russian) return key;
+  const values = {
+    'Updates': 'Обновления',
+    'Current version': 'Текущая версия',
+    'Check for updates': 'Проверить обновления',
+    'Checking for updates...': 'Проверяем обновления...',
+    'You have the latest version': 'Установлена последняя версия',
+    'Update available': 'Доступно обновление',
+    'Update now': 'Обновить сейчас',
+    'Download update': 'Скачать обновление',
+    'Could not check for updates': 'Не удалось проверить обновления',
+  };
+  return values[key] ?? key;
+}
+
+class _Updates extends StatefulWidget {
+  const _Updates({Key? key}) : super(key: key);
+
+  @override
+  State<_Updates> createState() => _UpdatesState();
+}
+
+class _UpdatesState extends State<_Updates> {
+  static const _handlerName = 'settings-manual-update-check';
+  String _currentVersion = '';
+  String _status = '';
+  String _availableVersion = '';
+  String _updateUrl = '';
+  bool _checking = false;
+
+  @override
+  void initState() {
+    super.initState();
+    bind.mainGetVersion().then((version) {
+      if (mounted) setState(() => _currentVersion = version);
+    });
+    platformFFI.registerEventHandler(
+        kCheckSoftwareUpdateFinish, _handlerName, (evt) async {
+      if (!mounted || !_checking) return;
+      setState(() {
+        _checking = false;
+        _status = evt['status']?.toString() ?? 'error';
+        _availableVersion = evt['version']?.toString() ?? '';
+        _updateUrl = evt['url']?.toString() ?? '';
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    platformFFI.unregisterEventHandler(
+        kCheckSoftwareUpdateFinish, _handlerName);
+    super.dispose();
+  }
+
+  void _check() {
+    setState(() {
+      _checking = true;
+      _status = '';
+      _availableVersion = '';
+      _updateUrl = '';
+    });
+    bind.mainSetCommon(key: 'manual-check-update', value: '');
+  }
+
+  void _installOrDownload() {
+    if (_updateUrl.isEmpty) return;
+    if ((isWindows || isMacOS) && bind.mainIsInstalled()) {
+      handleUpdate(_updateUrl);
+    } else {
+      launchUrlString(_updateUrl);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final statusText = switch (_status) {
+      'up_to_date' => _updatesText('You have the latest version'),
+      'available' => _availableVersion.isEmpty
+          ? _updatesText('Update available')
+          : '${_updatesText('Update available')}: $_availableVersion',
+      'error' => _updatesText('Could not check for updates'),
+      _ => '',
+    };
+    final canInstall =
+        (isWindows || isMacOS) && bind.mainIsInstalled();
+
+    return ListView(
+      children: [
+        _Card(
+          title: _updatesText('Updates'),
+          children: [
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '${_updatesText('Current version')}: ${_currentVersion.isEmpty ? '—' : _currentVersion}',
+              ),
+            ).marginOnly(left: _kContentHMargin, bottom: 12),
+            if (_checking)
+              Row(
+                children: [
+                  const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(_updatesText('Checking for updates...')),
+                ],
+              ).marginOnly(left: _kContentHMargin, bottom: 12),
+            if (!_checking && statusText.isNotEmpty)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  statusText,
+                  style: TextStyle(
+                    color: _status == 'error'
+                        ? Theme.of(context).colorScheme.error
+                        : null,
+                  ),
+                ),
+              ).marginOnly(left: _kContentHMargin, bottom: 12),
+            if (!_checking && _status == 'available' && _updateUrl.isNotEmpty)
+              _Button(
+                canInstall
+                    ? _updatesText('Update now')
+                    : _updatesText('Download update'),
+                _installOrDownload,
+              ).marginOnly(bottom: 8),
+            _Button(
+              _updatesText('Check for updates'),
+              _check,
+              enabled: !_checking,
+            ),
+          ],
+        ),
+        _Card(
+          title: _updatesText('Updates'),
+          children: [
+            _OptionCheckBox(
+              context,
+              'Check for software update on startup',
+              kOptionEnableCheckUpdate,
+              isServer: false,
+            ),
+            if (!bind.isIncomingOnly())
+              _OptionCheckBox(
+                context,
+                'Receive preview updates',
+                kOptionEnablePreviewUpdates,
+                isServer: false,
+              ),
+            if (isWindows)
+              _OptionCheckBox(
+                context,
+                'Auto update',
+                kOptionAllowAutoUpdate,
+                isServer: true,
+              ),
+          ],
+        ),
+      ],
+    ).marginOnly(bottom: _kListViewBottomMargin);
   }
 }
 

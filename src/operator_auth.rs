@@ -46,6 +46,10 @@ const ACCESS_TOKEN_ENTRY: &str = "operator-access-token";
 const ID_TOKEN_ENTRY: &str = "operator-id-token";
 const REFRESH_TOKEN_ENTRY: &str = "operator-refresh-token";
 const SESSION_ENTRY: &str = "operator-session";
+const SECRET_DIRECT_LIMIT: usize = 2_000;
+const SECRET_PART_SIZE: usize = 1_800;
+const SECRET_MAX_PARTS: usize = 32;
+const SECRET_MANIFEST_PREFIX: &str = "SCDS1";
 
 lazy_static! {
     static ref STATE: Mutex<AuthState> = Mutex::new(AuthState::default());
@@ -932,18 +936,96 @@ fn credential_entry(name: &str) -> Result<keyring::Entry> {
 }
 
 fn write_secret(name: &str, value: &str) -> Result<()> {
-    credential_entry(name)?
-        .set_password(value)
-        .map_err(|err| anyhow!("не удалось записать {name}: {err}"))
+    let previous = read_secret_value_optional(name)?;
+    let previous_manifest = previous
+        .as_deref()
+        .map(parse_secret_manifest)
+        .transpose()?
+        .flatten();
+
+    if value.len() <= SECRET_DIRECT_LIMIT {
+        write_secret_value(name, value)?;
+        if let Some(manifest) = previous_manifest {
+            remove_secret_parts(name, manifest.slot, manifest.count, false)?;
+        }
+        return Ok(());
+    }
+
+    let encoded = URL_SAFE_NO_PAD.encode(value.as_bytes());
+    let parts = encoded
+        .as_bytes()
+        .chunks(SECRET_PART_SIZE)
+        .map(|part| {
+            std::str::from_utf8(part)
+                .map(str::to_owned)
+                .context("не удалось подготовить защищённую OAuth-сессию")
+        })
+        .collect::<Result<Vec<_>>>()?;
+    if parts.len() > SECRET_MAX_PARTS {
+        bail!("OAuth-токен превышает допустимый размер защищённого хранилища");
+    }
+
+    let slot = match previous_manifest.as_ref().map(|manifest| manifest.slot) {
+        Some('a') => 'b',
+        _ => 'a',
+    };
+    remove_secret_parts(name, slot, SECRET_MAX_PARTS, true)?;
+    for (index, part) in parts.iter().enumerate() {
+        write_secret_value(&secret_part_name(name, slot, index), part)?;
+    }
+
+    let digest = URL_SAFE_NO_PAD.encode(Sha256::digest(value.as_bytes()));
+    let manifest = format!("{SECRET_MANIFEST_PREFIX}:{slot}:{}:{digest}", parts.len());
+    // The manifest is the commit pointer. Write it only after every protected
+    // segment is present so refresh-token rotation remains atomic.
+    write_secret_value(name, &manifest)?;
+
+    if let Some(previous_manifest) = previous_manifest {
+        if previous_manifest.slot != slot {
+            if let Err(err) =
+                remove_secret_parts(name, previous_manifest.slot, previous_manifest.count, false)
+            {
+                log::warn!("Не удалось удалить устаревшие сегменты OAuth-сессии: {err}");
+            }
+        }
+    }
+    Ok(())
 }
 
 fn read_secret(name: &str) -> Result<String> {
-    credential_entry(name)?
-        .get_password()
-        .map_err(|err| anyhow!("не удалось прочитать {name}: {err}"))
+    read_secret_optional(name)?.ok_or_else(|| anyhow!("не найдена защищённая запись {name}"))
 }
 
 fn read_secret_optional(name: &str) -> Result<Option<String>> {
+    let value = match read_secret_value_optional(name)? {
+        Some(value) => value,
+        None => return Ok(None),
+    };
+    let manifest = match parse_secret_manifest(&value)? {
+        Some(manifest) => manifest,
+        None => return Ok(Some(value)),
+    };
+
+    let mut encoded = String::new();
+    for index in 0..manifest.count {
+        let part_name = secret_part_name(name, manifest.slot, index);
+        let part = read_secret_value_optional(&part_name)?
+            .ok_or_else(|| anyhow!("защищённая OAuth-сессия сохранена не полностью"))?;
+        encoded.push_str(&part);
+    }
+    let decoded = URL_SAFE_NO_PAD
+        .decode(encoded)
+        .context("повреждены сегменты защищённой OAuth-сессии")?;
+    let digest = URL_SAFE_NO_PAD.encode(Sha256::digest(&decoded));
+    if digest != manifest.digest {
+        bail!("нарушена целостность защищённой OAuth-сессии");
+    }
+    String::from_utf8(decoded)
+        .map(Some)
+        .context("повреждена кодировка защищённой OAuth-сессии")
+}
+
+fn read_secret_value_optional(name: &str) -> Result<Option<String>> {
     match credential_entry(name)?.get_password() {
         Ok(value) => Ok(Some(value)),
         Err(keyring::Error::NoEntry) => Ok(None),
@@ -952,10 +1034,78 @@ fn read_secret_optional(name: &str) -> Result<Option<String>> {
 }
 
 fn delete_secret(name: &str) -> Result<()> {
+    let manifest = read_secret_value_optional(name)?
+        .as_deref()
+        .map(parse_secret_manifest)
+        .transpose()?
+        .flatten();
+    delete_secret_value(name)?;
+    if let Some(manifest) = manifest {
+        remove_secret_parts(name, manifest.slot, manifest.count, false)?;
+    }
+    Ok(())
+}
+
+fn write_secret_value(name: &str, value: &str) -> Result<()> {
+    credential_entry(name)?
+        .set_password(value)
+        .map_err(|err| anyhow!("не удалось записать {name}: {err}"))
+}
+
+fn delete_secret_value(name: &str) -> Result<()> {
     match credential_entry(name)?.delete_password() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(err) => Err(anyhow!("не удалось удалить {name}: {err}")),
     }
+}
+
+#[derive(Clone)]
+struct SecretManifest {
+    slot: char,
+    count: usize,
+    digest: String,
+}
+
+fn parse_secret_manifest(value: &str) -> Result<Option<SecretManifest>> {
+    if !value.starts_with(SECRET_MANIFEST_PREFIX) {
+        return Ok(None);
+    }
+    let mut fields = value.split(':');
+    let prefix = fields.next();
+    let slot = fields.next().and_then(|value| value.chars().next());
+    let count = fields.next().and_then(|value| value.parse::<usize>().ok());
+    let digest = fields.next();
+    if prefix != Some(SECRET_MANIFEST_PREFIX)
+        || !matches!(slot, Some('a' | 'b'))
+        || !matches!(count, Some(1..=SECRET_MAX_PARTS))
+        || digest.is_none()
+        || fields.next().is_some()
+    {
+        bail!("повреждён манифест защищённой OAuth-сессии");
+    }
+    Ok(Some(SecretManifest {
+        slot: slot.unwrap_or('a'),
+        count: count.unwrap_or(1),
+        digest: digest.unwrap_or_default().to_owned(),
+    }))
+}
+
+fn secret_part_name(name: &str, slot: char, index: usize) -> String {
+    format!("{name}-segment-{slot}-{index}")
+}
+
+fn remove_secret_parts(name: &str, slot: char, count: usize, tolerate_missing: bool) -> Result<()> {
+    for index in 0..count {
+        let part_name = secret_part_name(name, slot, index);
+        if let Err(err) = delete_secret_value(&part_name) {
+            if tolerate_missing {
+                log::warn!("Не удалось очистить сегмент защищённой OAuth-сессии: {err}");
+            } else {
+                return Err(err);
+            }
+        }
+    }
+    Ok(())
 }
 
 fn random_base64url_32() -> String {

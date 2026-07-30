@@ -2485,6 +2485,10 @@ pub fn is_disable_ab() -> SyncReturn<bool> {
 }
 
 pub fn is_disable_account() -> SyncReturn<bool> {
+    #[cfg(any(feature = "soft-connect-support", feature = "soft-connect-operator"))]
+    return SyncReturn(true);
+
+    #[cfg(not(any(feature = "soft-connect-support", feature = "soft-connect-operator")))]
     SyncReturn(config::is_disable_account())
 }
 
@@ -2884,10 +2888,7 @@ pub fn main_get_common(key: String) -> String {
                 }
             }
         } else if key.starts_with("download-file-") {
-            let file = crate::common::SOFTWARE_UPDATE_FILE
-                .lock()
-                .unwrap()
-                .clone();
+            let file = crate::common::SOFTWARE_UPDATE_FILE.lock().unwrap().clone();
             if file.is_empty() {
                 "error:unsupported".to_owned()
             } else {
@@ -2904,6 +2905,11 @@ pub fn main_get_common_sync(key: String) -> SyncReturn<String> {
 }
 
 pub fn main_set_common(_key: String, _value: String) {
+    if _key == "manual-check-update" {
+        crate::common::manually_check_software_update();
+        return;
+    }
+
     #[cfg(all(
         feature = "soft-connect-operator",
         not(any(target_os = "android", target_os = "ios"))
@@ -3053,8 +3059,7 @@ pub fn main_set_common(_key: String, _value: String) {
 
 pub fn session_set_common(session_id: SessionID, key: String, value: String) {
     if let Some(s) = sessions::get_session_by_session_id(&session_id) {
-        if key == "continue-insecure-connection"
-        {
+        if key == "continue-insecure-connection" {
             s.continue_insecure_connection(value == "Y");
             return;
         }

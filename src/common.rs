@@ -947,6 +947,31 @@ pub fn check_software_update() {
     }
 }
 
+pub fn manually_check_software_update() {
+    std::thread::spawn(move || {
+        if let Err(err) = do_check_software_update() {
+            log::error!("Manual software update check failed: {err}");
+            push_software_update_event("error", "", "", &err.to_string());
+        }
+    });
+}
+
+fn push_software_update_event(status: &str, url: &str, version: &str, error: &str) {
+    #[cfg(feature = "flutter")]
+    {
+        let data = serde_json::json!({
+            "name": "check_software_update_finish",
+            "status": status,
+            "url": url,
+            "version": version,
+            "error": error,
+        });
+        let _ = crate::flutter::push_global_event(crate::flutter::APP_TYPE_MAIN, data.to_string());
+    }
+    #[cfg(not(feature = "flutter"))]
+    let _ = (status, url, version, error);
+}
+
 const SOFT_CONNECT_RELEASES_API: &str =
     "https://api.github.com/repos/SalesOfTech/SOFT.Connect.Desk/releases";
 
@@ -1002,9 +1027,7 @@ fn soft_connect_update_asset_name() -> ResultType<String> {
             return Ok(format!("SOFT.Connect.Desk-{role}-windows-{arch}.msi"));
         }
         let arch_part = if arch == "arm64" { "arm64-" } else { "" };
-        return Ok(format!(
-            "SOFT.Connect.Desk-{role}-{arch_part}install.exe"
-        ));
+        return Ok(format!("SOFT.Connect.Desk-{role}-{arch_part}install.exe"));
     }
     #[cfg(target_os = "macos")]
     {
@@ -1028,37 +1051,26 @@ fn soft_connect_update_asset_name() -> ResultType<String> {
         } else {
             bail!("Unsupported Linux update architecture");
         };
-        return Ok(format!(
-            "SOFT.Connect.Desk-{role}-linux-{arch}.AppImage"
-        ));
+        return Ok(format!("SOFT.Connect.Desk-{role}-linux-{arch}.AppImage"));
     }
     #[cfg(target_os = "android")]
     {
-        return Ok(format!(
-            "SOFT.Connect.Desk-{role}-android-universal.apk"
-        ));
+        return Ok(format!("SOFT.Connect.Desk-{role}-android-universal.apk"));
     }
     #[allow(unreachable_code)]
     bail!("Software updates are not supported on this platform")
 }
 
 fn soft_connect_version_key(version: &str) -> (u64, u64, u64, u64, u8, u64) {
-    let normalized = version
-        .trim()
-        .trim_start_matches('v')
-        .to_ascii_lowercase();
+    let normalized = version.trim().trim_start_matches('v').to_ascii_lowercase();
     let mut parts = normalized.split('-');
     let core = parts.next().unwrap_or_default();
     let suffix = parts.collect::<Vec<_>>().join("-");
-    let mut core_numbers = core
-        .split('.')
-        .map(|part| part.parse::<u64>().unwrap_or(0));
+    let mut core_numbers = core.split('.').map(|part| part.parse::<u64>().unwrap_or(0));
     let major = core_numbers.next().unwrap_or(0);
     let minor = core_numbers.next().unwrap_or(0);
     let patch = core_numbers.next().unwrap_or(0);
-    let suffix_parts = suffix
-        .split(|c| c == '.' || c == '-')
-        .collect::<Vec<_>>();
+    let suffix_parts = suffix.split(|c| c == '.' || c == '-').collect::<Vec<_>>();
     let soft_revision = suffix_parts
         .windows(2)
         .find(|window| window[0] == "soft")
@@ -1155,20 +1167,15 @@ pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
             .iter()
             .find(|asset| asset.name == expected_asset)
             .map(|asset| asset.sha256.to_ascii_lowercase())
-            .filter(|sha256| {
-                sha256.len() == 64 && sha256.chars().all(|c| c.is_ascii_hexdigit())
-            })
+            .filter(|sha256| sha256.len() == 64 && sha256.chars().all(|c| c.is_ascii_hexdigit()))
             .context("Compatible update is missing from update manifest")?;
         let response_url = release.html_url;
-        #[cfg(feature = "flutter")]
-        {
-            let mut m = HashMap::new();
-            m.insert("name", "check_software_update_finish");
-            m.insert("url", &response_url);
-            if let Ok(data) = serde_json::to_string(&m) {
-                let _ = crate::flutter::push_global_event(crate::flutter::APP_TYPE_MAIN, data);
-            }
-        }
+        push_software_update_event(
+            "available",
+            &response_url,
+            release.tag_name.trim_start_matches('v'),
+            "",
+        );
         *SOFTWARE_UPDATE_URL.lock().unwrap() = response_url;
         *SOFTWARE_UPDATE_FILE.lock().unwrap() = expected_asset;
         *SOFTWARE_UPDATE_SHA256.lock().unwrap() = expected_sha256;
@@ -1176,6 +1183,7 @@ pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
         *SOFTWARE_UPDATE_URL.lock().unwrap() = "".to_string();
         *SOFTWARE_UPDATE_FILE.lock().unwrap() = "".to_string();
         *SOFTWARE_UPDATE_SHA256.lock().unwrap() = "".to_string();
+        push_software_update_event("up_to_date", "", crate::VERSION, "");
     }
     Ok(())
 }
@@ -1261,6 +1269,10 @@ fn get_api_server_(api: String, custom: String) -> String {
             return format!("http://{}", s);
         }
     }
+    #[cfg(any(feature = "soft-connect-support", feature = "soft-connect-operator"))]
+    return "".to_owned();
+
+    #[cfg(not(any(feature = "soft-connect-support", feature = "soft-connect-operator")))]
     "https://admin.rustdesk.com".to_owned()
 }
 
