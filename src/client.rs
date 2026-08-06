@@ -2696,22 +2696,26 @@ impl LoginConfigHandler {
         if display_name.is_empty() {
             display_name = crate::username();
         }
-        let display_name = display_name
-            .split_whitespace()
-            .map(|word| {
-                word.chars()
-                    .enumerate()
-                    .map(|(i, c)| {
-                        if i == 0 {
-                            c.to_uppercase().to_string()
-                        } else {
-                            c.to_string()
-                        }
-                    })
-                    .collect::<String>()
-            })
-            .collect::<Vec<_>>()
-            .join(" ");
+        let display_name = if cfg!(feature = "soft-connect-operator") {
+            "SOFT.Support Team".to_owned()
+        } else {
+            display_name
+                .split_whitespace()
+                .map(|word| {
+                    word.chars()
+                        .enumerate()
+                        .map(|(i, c)| {
+                            if i == 0 {
+                                c.to_uppercase().to_string()
+                            } else {
+                                c.to_string()
+                            }
+                        })
+                        .collect::<String>()
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
         #[cfg(not(target_os = "android"))]
         let my_platform = hbb_common::whoami::platform().to_string();
         #[cfg(target_os = "android")]

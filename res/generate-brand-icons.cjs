@@ -69,6 +69,23 @@ function smallIconSvg() {
 </svg>`;
 }
 
+// At 16 px the detailed fox turns into a few unrelated pixels. Use the
+// product's connection mark for caption and notification-area sizes instead.
+// It shares the same background and palette as the full application icon.
+function microIconSvg() {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>${commonDefs}</defs>
+  <rect x="34" y="34" width="956" height="956" rx="228" fill="url(#bg)"/>
+  <rect x="58" y="58" width="908" height="908" rx="202" fill="none" stroke="#2A4A64" stroke-width="12" opacity="0.88"/>
+  <g fill="none" stroke="url(#connection)" stroke-width="112" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M462 365H350c-115 0-208 66-208 147s93 147 208 147h112"/>
+    <path d="M562 365h112c115 0 208 66 208 147s-93 147-208 147H562"/>
+    <path d="M384 512h256"/>
+  </g>
+</svg>`;
+}
+
 function roundIconSvg() {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
@@ -133,9 +150,10 @@ async function main() {
 
   const appSvg = appIconSvg();
   const smallSvg = smallIconSvg();
+  const microSvg = microIconSvg();
   const roundSvg = roundIconSvg();
   const foregroundSvg = adaptiveForegroundSvg();
-  const trayColorSvg = traySvg("#FFAA00", false);
+  const trayColorSvg = microSvg;
   const trayTemplateSvg = traySvg("#000000", false);
   const notifySvg = notificationSvg();
 
@@ -156,17 +174,18 @@ async function main() {
     [128, path.join(__dirname, "128x128.png")],
     [64, path.join(__dirname, "64x64.png")],
     [512, path.join(repo, "flutter", "assets", "icon.png")],
+    [256, path.join(repo, "flutter", "assets", "tray-icon.png"), trayColorSvg],
     [512, path.join(repo, "fastlane", "metadata", "android", "en-US", "images", "icon.png")],
   ];
-  for (const [size, output] of standardOutputs) {
-    await render(appSvg, size, output);
+  for (const [size, output, sourceSvg = appSvg] of standardOutputs) {
+    await render(sourceSvg, size, output);
   }
   await render(smallSvg, 32, path.join(__dirname, "32x32.png"));
 
   const appFrames = [16, 24, 32, 48, 64, 128, 256];
   for (const size of appFrames) {
     await render(
-      size <= 32 ? smallSvg : appSvg,
+      size === 16 ? microSvg : size <= 32 ? smallSvg : appSvg,
       size,
       path.join(buildDir, `app-${size}.png`),
     );
@@ -205,10 +224,10 @@ async function main() {
 
   const previewVariants = [
     ["Desktop / Linux / macOS", appSvg],
-    ["Small 16–32 px", smallSvg],
+    ["Caption / system tray", microSvg],
+    ["Small 24–32 px", smallSvg],
     ["Round launcher", roundSvg],
     ["Android foreground", foregroundSvg],
-    ["System tray", trayColorSvg],
   ];
   const sheetComposites = [];
   for (const [index, [label, svg]] of previewVariants.entries()) {
