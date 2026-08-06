@@ -1,0 +1,86 @@
+name: Build SOFT.Connect.Desk Server
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SERVER_REVISION: c3a3e0d1070e29cb28b468cf6ef5b184e65e4051
+  RUST_VERSION: "1.88.0"
+  TARGET: x86_64-unknown-linux-musl
+
+jobs:
+  hbbs:
+    name: Build and test hbbs x64
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout SOFT.Connect.Desk
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Checkout pinned RustDesk Server OSS source
+        shell: bash
+        run: |
+          git clone --filter=blob:none https://github.com/rustdesk/rustdesk-server.git server-source
+          git -C server-source checkout "$SERVER_REVISION"
+          git -C server-source submodule update --init --recursive --depth 1
+          git -C server-source apply --check "$GITHUB_WORKSPACE/.github/patches/rustdesk-server-custom-id.patch"
+          git -C server-source apply "$GITHUB_WORKSPACE/.github/patches/rustdesk-server-custom-id.patch"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: ${{ env.TARGET }}
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          workspaces: server-source
+          prefix-key: soft-connect-desk-server
+
+      - name: Install cross
+        shell: bash
+        run: cargo install cross --git https://github.com/cross-rs/cross --rev 8242d6f1f7587d84a399b98c2b162d49574d2259 --locked
+
+      - name: Build hbbs
+        working-directory: server-source
+        shell: bash
+        run: cross build --release --bin hbbs --target "$TARGET"
+
+      - name: Smoke-test custom ID support
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/hbbs-test"
+          cp "server-source/target/$TARGET/release/hbbs" "$RUNNER_TEMP/hbbs-test/hbbs"
+          chmod +x "$RUNNER_TEMP/hbbs-test/hbbs"
+          pushd "$RUNNER_TEMP/hbbs-test"
+          TEST_HBBS=no ./hbbs --port 22116 >hbbs.log 2>&1 &
+          HBBS_PID=$!
+          trap 'kill "$HBBS_PID" 2>/dev/null || true' EXIT
+          python3 "$GITHUB_WORKSPACE/.github/scripts/test_server_custom_id.py" 22116 "$RUNNER_TEMP/hbbs-test/db_v2.sqlite3"
+          kill "$HBBS_PID"
+          wait "$HBBS_PID" || true
+          trap - EXIT
+          popd
+
+      - name: Prepare artifact
+        shell: bash
+        run: |
+          mkdir -p server-artifact
+          cp "server-source/target/$TARGET/release/hbbs" server-artifact/hbbs
+          chmod +x server-artifact/hbbs
+          sha256sum server-artifact/hbbs > server-artifact/SHA256SUMS
+          printf '%s\n' "$SERVER_REVISION" > server-artifact/UPSTREAM_REVISION
+          cp LICENCE server-artifact/SOFT_CONNECT_DESK_LICENSE
+          cp server-source/LICENSE server-artifact/RUSTDESK_SERVER_LICENSE
+          cp .github/patches/rustdesk-server-custom-id.patch server-artifact/
+
+      - name: Upload server artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: soft-connect-desk-hbbs-linux-x64
+          retention-days: 30
+          if-no-files-found: error
+          path: server-artifact/
