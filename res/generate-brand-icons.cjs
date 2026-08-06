@@ -81,6 +81,16 @@ function microIconSvg() {
 </svg>`;
 }
 
+// The in-app desktop title bar renders this mark at only 16 logical pixels.
+// A background tile and the regular app-icon padding make the fox too small
+// and blurry there, so keep a dedicated edge-to-edge vector asset.
+function titleIconSvg() {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  ${fox(18, 34, 988, 956, "#FF9A16")}
+</svg>`;
+}
+
 function roundIconSvg() {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
@@ -131,6 +141,35 @@ async function render(svg, size, output) {
     .toFile(output);
 }
 
+// At notification-area sizes the antialiased edge pixels make the thin fox
+// geometry look blurred. Rasterise at the final physical size and snap the
+// alpha channel to whole pixels; Windows can then display it without another
+// resampling pass.
+async function renderCrispSmall(svg, size, output, alphaThreshold = 96) {
+  const png = await sharp(Buffer.from(svg))
+    .resize(size, size, { fit: "fill" })
+    .png()
+    .toBuffer();
+  const { data, info } = await sharp(png)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  for (let offset = 0; offset < data.length; offset += info.channels) {
+    const alphaOffset = offset + 3;
+    data[offset] = 255;
+    data[offset + 1] = 154;
+    data[offset + 2] = 22;
+    data[alphaOffset] = data[alphaOffset] >= alphaThreshold ? 255 : 0;
+  }
+
+  await sharp(data, {
+    raw: { width: info.width, height: info.height, channels: info.channels },
+  })
+    .png()
+    .toFile(output);
+}
+
 async function wordmark(iconPng, color, output) {
   const iconData = iconPng.toString("base64");
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="555" height="111" viewBox="0 0 555 111">
@@ -146,9 +185,13 @@ async function main() {
   const appSvg = appIconSvg();
   const smallSvg = smallIconSvg();
   const microSvg = microIconSvg();
+  const titleSvg = titleIconSvg();
   const roundSvg = roundIconSvg();
   const foregroundSvg = adaptiveForegroundSvg();
-  const trayColorSvg = microSvg;
+  // The Windows notification area is already constrained to a tiny square.
+  // Reuse the edge-to-edge title mark so the fox is not reduced twice by an
+  // additional background tile and padding.
+  const trayColorSvg = titleSvg;
   const trayTemplateSvg = traySvg("#000000", false);
   const notifySvg = notificationSvg();
 
@@ -161,6 +204,10 @@ async function main() {
   ]) {
     fs.writeFileSync(output, appSvg);
   }
+  fs.writeFileSync(
+    path.join(repo, "flutter", "assets", "title-icon.svg"),
+    titleSvg,
+  );
 
   const standardOutputs = [
     [1024, path.join(__dirname, "icon.png")],
@@ -169,11 +216,35 @@ async function main() {
     [128, path.join(__dirname, "128x128.png")],
     [64, path.join(__dirname, "64x64.png")],
     [512, path.join(repo, "flutter", "assets", "icon.png")],
-    [256, path.join(repo, "flutter", "assets", "tray-icon.png"), trayColorSvg],
     [512, path.join(repo, "fastlane", "metadata", "android", "en-US", "images", "icon.png")],
   ];
   for (const [size, output, sourceSvg = appSvg] of standardOutputs) {
     await render(sourceSvg, size, output);
+  }
+  await renderCrispSmall(
+    titleSvg,
+    16,
+    path.join(repo, "flutter", "assets", "title-icon.png"),
+  );
+  // Windows uses this file directly for the notification area. Supplying a
+  // tray-sized source avoids the shell downscaling a detailed 256 px image.
+  await renderCrispSmall(
+    trayColorSvg,
+    16,
+    path.join(repo, "flutter", "assets", "tray-icon.png"),
+  );
+  for (const size of [16, 20, 24, 32, 40, 48]) {
+    const output = path.join(
+      repo,
+      "flutter",
+      "assets",
+      `tray-icon-${size}.png`,
+    );
+    if (size <= 24) {
+      await renderCrispSmall(trayColorSvg, size, output);
+    } else {
+      await render(trayColorSvg, size, output);
+    }
   }
   await render(smallSvg, 32, path.join(__dirname, "32x32.png"));
 

@@ -279,7 +279,23 @@ fn load_icon_from_asset() -> Option<image::DynamicImage> {
     let path =
         path.join("../Frameworks/App.framework/Resources/flutter_assets/assets/tray-icon.png");
     #[cfg(windows)]
-    let path = path.join(r"data\flutter_assets\assets\tray-icon.png");
+    let path = {
+        let icon_size =
+            unsafe { winapi::um::winuser::GetSystemMetrics(winapi::um::winuser::SM_CXSMICON) }
+                .max(16);
+        let nearest_size = [16_i32, 20, 24, 32, 40, 48]
+            .into_iter()
+            .min_by_key(|size| (size - icon_size).abs())
+            .unwrap_or(16);
+        let dpi_icon = path.join(format!(
+            r"data\flutter_assets\assets\tray-icon-{nearest_size}.png"
+        ));
+        if dpi_icon.exists() {
+            dpi_icon
+        } else {
+            path.join(r"data\flutter_assets\assets\tray-icon.png")
+        }
+    };
     #[cfg(target_os = "linux")]
     let path = path.join(r"data/flutter_assets/assets/tray-icon.png");
     if path.exists() {

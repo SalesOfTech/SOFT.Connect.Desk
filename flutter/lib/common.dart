@@ -3834,14 +3834,21 @@ class _LogoState extends State<_Logo> {
 Widget loadLogo() => const _Logo();
 
 Widget loadIcon(double size) {
-  return Image.asset('assets/icon.png',
+  if (size <= 20) {
+    return Image.asset(
+      'assets/title-icon.png',
       width: size,
       height: size,
-      errorBuilder: (ctx, error, stackTrace) => SvgPicture.asset(
-            'assets/icon.svg',
-            width: size,
-            height: size,
-          ));
+      filterQuality: FilterQuality.none,
+      isAntiAlias: false,
+    );
+  }
+  return SvgPicture.asset(
+    'assets/title-icon.svg',
+    width: size,
+    height: size,
+    fit: BoxFit.contain,
+  );
 }
 
 var imcomingOnlyHomeSize = Size(280, 300);
