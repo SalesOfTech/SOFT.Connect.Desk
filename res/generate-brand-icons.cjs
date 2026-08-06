@@ -17,7 +17,40 @@ const pathMatch = source.match(/<path class="fil0" d="([\s\S]*?)"\/>/);
 if (!pathMatch) {
   throw new Error(`Could not find the CorelDRAW logo path in ${sourcePath}`);
 }
-const foxPath = pathMatch[1];
+// CorelDRAW exported the fox and the wordmark as one compound path. Every
+// subpath after the first starts with a relative `m`, so normalise those moves
+// to absolute coordinates before discarding all wordmark geometry.
+const compoundSubpaths = pathMatch[1].replace(/z(?=m)/g, "z|").split("|");
+let subpathX = 0;
+let subpathY = 0;
+const absoluteSubpaths = compoundSubpaths.map((subpath) => {
+  const move = subpath.match(
+    /^([Mm])\s*(-?\d+(?:\.\d+)?)\s*[ ,]\s*(-?\d+(?:\.\d+)?)/,
+  );
+  if (!move) {
+    throw new Error(`Could not parse a CorelDRAW subpath in ${sourcePath}`);
+  }
+  const moveX = Number(move[2]);
+  const moveY = Number(move[3]);
+  if (move[1] === "M") {
+    subpathX = moveX;
+    subpathY = moveY;
+  } else {
+    subpathX += moveX;
+    subpathY += moveY;
+  }
+  return {
+    x: subpathX,
+    path: `M${subpathX} ${subpathY}${subpath.slice(move[0].length)}`,
+  };
+});
+const foxSubpaths = absoluteSubpaths
+  .filter(({ x }) => x < 3000)
+  .map(({ path: subpath }) => subpath);
+if (foxSubpaths.length === 0 || foxSubpaths.length === compoundSubpaths.length) {
+  throw new Error(`Could not isolate the fox geometry in ${sourcePath}`);
+}
+const foxPath = foxSubpaths.join("");
 
 const commonDefs = `
   <linearGradient id="bg" x1="92" y1="54" x2="936" y2="970" gradientUnits="userSpaceOnUse">
@@ -84,10 +117,11 @@ function microIconSvg() {
 // The in-app desktop title bar renders this mark at only 16 logical pixels.
 // A background tile and the regular app-icon padding make the fox too small
 // and blurry there, so keep a dedicated edge-to-edge vector asset.
-function titleIconSvg() {
+function foxOnlySvg() {
   return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  ${fox(18, 34, 988, 956, "#FF9A16")}
+<svg xmlns="http://www.w3.org/2000/svg" width="2824" height="2824" viewBox="0 -44.875 2824 2824">
+  <defs>${commonDefs}</defs>
+  <path d="${foxPath}" fill="url(#fox)"/>
 </svg>`;
 }
 
@@ -141,11 +175,12 @@ async function render(svg, size, output) {
     .toFile(output);
 }
 
-function dilateAlpha(data, width, height, radius) {
+function dilateRgba(data, width, height, radius) {
   const output = Buffer.alloc(data.length);
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
-      let alpha = 0;
+      let sourceOffset = (y * width + x) * 4;
+      let alpha = data[sourceOffset + 3];
       for (let dy = -radius; dy <= radius; dy += 1) {
         for (let dx = -radius; dx <= radius; dx += 1) {
           if (dx * dx + dy * dy > radius * radius) continue;
@@ -157,11 +192,20 @@ function dilateAlpha(data, width, height, radius) {
             sourceY >= 0 &&
             sourceY < height
           ) {
-            alpha = Math.max(alpha, data[sourceY * width + sourceX]);
+            const candidateOffset = (sourceY * width + sourceX) * 4;
+            const candidateAlpha = data[candidateOffset + 3];
+            if (candidateAlpha > alpha) {
+              alpha = candidateAlpha;
+              sourceOffset = candidateOffset;
+            }
           }
         }
       }
-      output[y * width + x] = alpha;
+      const outputOffset = (y * width + x) * 4;
+      output[outputOffset] = data[sourceOffset];
+      output[outputOffset + 1] = data[sourceOffset + 1];
+      output[outputOffset + 2] = data[sourceOffset + 2];
+      output[outputOffset + 3] = alpha;
     }
   }
   return output;
@@ -178,28 +222,14 @@ async function renderSmoothSmall(svg, size, output) {
     .resize(workingSize, workingSize, { fit: "fill" })
     .png()
     .toBuffer();
-  const { data: sourceAlpha, info } = await sharp(png)
-    .extractChannel(3)
+  const { data, info } = await sharp(png)
+    .ensureAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
-  const alpha = dilateAlpha(sourceAlpha, info.width, info.height, 1);
-  const color = Buffer.alloc(info.width * info.height * 3);
-
-  for (let offset = 0; offset < color.length; offset += 3) {
-    color[offset] = 255;
-    color[offset + 1] = 154;
-    color[offset + 2] = 22;
-  }
-
-  const rgba = await sharp(color, {
-    raw: { width: info.width, height: info.height, channels: 3 },
+  const rgba = dilateRgba(data, info.width, info.height, 1);
+  await sharp(rgba, {
+    raw: { width: info.width, height: info.height, channels: 4 },
   })
-    .joinChannel(alpha, {
-      raw: { width: info.width, height: info.height, channels: 1 },
-    })
-    .png()
-    .toBuffer();
-  await sharp(rgba)
     .resize(size, size, { kernel: sharp.kernel.lanczos3 })
     .png()
     .toFile(output);
@@ -220,7 +250,7 @@ async function main() {
   const appSvg = appIconSvg();
   const smallSvg = smallIconSvg();
   const microSvg = microIconSvg();
-  const titleSvg = titleIconSvg();
+  const titleSvg = foxOnlySvg();
   const roundSvg = roundIconSvg();
   const foregroundSvg = adaptiveForegroundSvg();
   // The Windows notification area is already constrained to a tiny square.
@@ -243,6 +273,10 @@ async function main() {
     path.join(repo, "flutter", "assets", "title-icon.svg"),
     titleSvg,
   );
+  fs.writeFileSync(
+    path.join(__dirname, "brand", "soft-connect-fox.svg"),
+    titleSvg,
+  );
 
   const standardOutputs = [
     [1024, path.join(__dirname, "icon.png")],
@@ -255,27 +289,6 @@ async function main() {
   ];
   for (const [size, output, sourceSvg = appSvg] of standardOutputs) {
     await render(sourceSvg, size, output);
-  }
-  await renderSmoothSmall(
-    titleSvg,
-    16,
-    path.join(repo, "flutter", "assets", "title-icon.png"),
-  );
-  for (const [scale, size] of [
-    ["1.5x", 24],
-    ["2.0x", 32],
-    ["3.0x", 48],
-    ["4.0x", 64],
-  ]) {
-    const output = path.join(
-      repo,
-      "flutter",
-      "assets",
-      scale,
-      "title-icon.png",
-    );
-    fs.mkdirSync(path.dirname(output), { recursive: true });
-    await renderSmoothSmall(titleSvg, size, output);
   }
   // Windows uses this file directly for the notification area. Supplying a
   // tray-sized source avoids the shell downscaling a detailed 256 px image.

@@ -3834,15 +3834,6 @@ class _LogoState extends State<_Logo> {
 Widget loadLogo() => const _Logo();
 
 Widget loadIcon(double size) {
-  if (size <= 20) {
-    return Image.asset(
-      'assets/title-icon.png',
-      width: size,
-      height: size,
-      filterQuality: FilterQuality.medium,
-      isAntiAlias: true,
-    );
-  }
   return SvgPicture.asset(
     'assets/title-icon.svg',
     width: size,
