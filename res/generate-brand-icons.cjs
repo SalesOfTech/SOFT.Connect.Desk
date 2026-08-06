@@ -175,6 +175,17 @@ async function render(svg, size, output) {
     .toFile(output);
 }
 
+async function renderSupersampled(svg, size, output) {
+  const source = await sharp(Buffer.from(svg))
+    .resize(size * 4, size * 4, { fit: "fill" })
+    .png()
+    .toBuffer();
+  await sharp(source)
+    .resize(size, size, { kernel: sharp.kernel.lanczos3 })
+    .png()
+    .toFile(output);
+}
+
 function dilateRgba(data, width, height, radius) {
   const output = Buffer.alloc(data.length);
   for (let y = 0; y < height; y += 1) {
@@ -310,8 +321,8 @@ async function main() {
 
   const appFrames = [16, 24, 32, 48, 64, 128, 256];
   for (const size of appFrames) {
-    await render(
-      size <= 64 ? microSvg : appSvg,
+    await renderSupersampled(
+      size === 16 ? microSvg : size <= 32 ? smallSvg : appSvg,
       size,
       path.join(buildDir, `app-${size}.png`),
     );
