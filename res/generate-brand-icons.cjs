@@ -141,31 +141,66 @@ async function render(svg, size, output) {
     .toFile(output);
 }
 
-// At notification-area sizes the antialiased edge pixels make the thin fox
-// geometry look blurred. Rasterise at the final physical size and snap the
-// alpha channel to whole pixels; Windows can then display it without another
-// resampling pass.
-async function renderCrispSmall(svg, size, output, alphaThreshold = 96) {
+function dilateAlpha(data, width, height, radius) {
+  const output = Buffer.alloc(data.length);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      let alpha = 0;
+      for (let dy = -radius; dy <= radius; dy += 1) {
+        for (let dx = -radius; dx <= radius; dx += 1) {
+          if (dx * dx + dy * dy > radius * radius) continue;
+          const sourceX = x + dx;
+          const sourceY = y + dy;
+          if (
+            sourceX >= 0 &&
+            sourceX < width &&
+            sourceY >= 0 &&
+            sourceY < height
+          ) {
+            alpha = Math.max(alpha, data[sourceY * width + sourceX]);
+          }
+        }
+      }
+      output[y * width + x] = alpha;
+    }
+  }
+  return output;
+}
+
+// RustDesk's compact mark consists of two heavy shapes, whereas the fox has
+// much finer internal geometry. Thicken its alpha mask by one supersampled
+// pixel before the final high-quality downscale. This is only 0.25 physical
+// pixels, enough to keep the lines readable without jagged thresholding.
+async function renderSmoothSmall(svg, size, output) {
+  const supersampling = 4;
+  const workingSize = size * supersampling;
   const png = await sharp(Buffer.from(svg))
-    .resize(size, size, { fit: "fill" })
+    .resize(workingSize, workingSize, { fit: "fill" })
     .png()
     .toBuffer();
-  const { data, info } = await sharp(png)
-    .ensureAlpha()
+  const { data: sourceAlpha, info } = await sharp(png)
+    .extractChannel(3)
     .raw()
     .toBuffer({ resolveWithObject: true });
+  const alpha = dilateAlpha(sourceAlpha, info.width, info.height, 1);
+  const color = Buffer.alloc(info.width * info.height * 3);
 
-  for (let offset = 0; offset < data.length; offset += info.channels) {
-    const alphaOffset = offset + 3;
-    data[offset] = 255;
-    data[offset + 1] = 154;
-    data[offset + 2] = 22;
-    data[alphaOffset] = data[alphaOffset] >= alphaThreshold ? 255 : 0;
+  for (let offset = 0; offset < color.length; offset += 3) {
+    color[offset] = 255;
+    color[offset + 1] = 154;
+    color[offset + 2] = 22;
   }
 
-  await sharp(data, {
-    raw: { width: info.width, height: info.height, channels: info.channels },
+  const rgba = await sharp(color, {
+    raw: { width: info.width, height: info.height, channels: 3 },
   })
+    .joinChannel(alpha, {
+      raw: { width: info.width, height: info.height, channels: 1 },
+    })
+    .png()
+    .toBuffer();
+  await sharp(rgba)
+    .resize(size, size, { kernel: sharp.kernel.lanczos3 })
     .png()
     .toFile(output);
 }
@@ -221,14 +256,30 @@ async function main() {
   for (const [size, output, sourceSvg = appSvg] of standardOutputs) {
     await render(sourceSvg, size, output);
   }
-  await renderCrispSmall(
+  await renderSmoothSmall(
     titleSvg,
     16,
     path.join(repo, "flutter", "assets", "title-icon.png"),
   );
+  for (const [scale, size] of [
+    ["1.5x", 24],
+    ["2.0x", 32],
+    ["3.0x", 48],
+    ["4.0x", 64],
+  ]) {
+    const output = path.join(
+      repo,
+      "flutter",
+      "assets",
+      scale,
+      "title-icon.png",
+    );
+    fs.mkdirSync(path.dirname(output), { recursive: true });
+    await renderSmoothSmall(titleSvg, size, output);
+  }
   // Windows uses this file directly for the notification area. Supplying a
   // tray-sized source avoids the shell downscaling a detailed 256 px image.
-  await renderCrispSmall(
+  await renderSmoothSmall(
     trayColorSvg,
     16,
     path.join(repo, "flutter", "assets", "tray-icon.png"),
@@ -240,11 +291,7 @@ async function main() {
       "assets",
       `tray-icon-${size}.png`,
     );
-    if (size <= 24) {
-      await renderCrispSmall(trayColorSvg, size, output);
-    } else {
-      await render(trayColorSvg, size, output);
-    }
+    await renderSmoothSmall(trayColorSvg, size, output);
   }
   await render(smallSvg, 32, path.join(__dirname, "32x32.png"));
 

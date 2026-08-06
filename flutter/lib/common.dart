@@ -3839,8 +3839,8 @@ Widget loadIcon(double size) {
       'assets/title-icon.png',
       width: size,
       height: size,
-      filterQuality: FilterQuality.none,
-      isAntiAlias: false,
+      filterQuality: FilterQuality.medium,
+      isAntiAlias: true,
     );
   }
   return SvgPicture.asset(
