@@ -66,11 +66,23 @@ def response_result(payload: bytes) -> int:
     return inner[1]
 
 
-def seed_peer(db_path: str, peer_id: str, uuid: bytes, pk: bytes) -> None:
+def seed_peer(
+    db_path: str,
+    peer_id: str,
+    uuid: bytes,
+    pk: bytes,
+    guid: bytes | None = None,
+) -> None:
     with sqlite3.connect(db_path) as connection:
         connection.execute(
             "insert into peer(guid, id, uuid, pk, info) values(?, ?, ?, ?, ?)",
-            (peer_id.encode()[:16], peer_id, uuid, pk, '{"ip":"127.0.0.1"}'),
+            (
+                guid or peer_id.encode()[:16],
+                peer_id,
+                uuid,
+                pk,
+                '{"ip":"127.0.0.1"}',
+            ),
         )
 
 
@@ -105,6 +117,15 @@ def main() -> None:
 
     assert change_id(port, "111222333", "Philipp", b"wrong-uuid") == 2
     assert change_id(port, "111222333", "bad", uuid_a) == 5
+    assert change_id(port, "111222333", "Philipp", uuid_a) == 0
+    seed_peer(
+        db_path,
+        "111222333",
+        uuid_a,
+        b"a" * 32,
+        guid=b"duplicate-old-id",
+    )
+    assert change_id(port, "111222333", "Philipp", uuid_a) == 0
     assert change_id(port, "111222333", "Philipp", uuid_a) == 0
     assert change_id(port, "444555666", "Philipp", uuid_b) == 3
 
