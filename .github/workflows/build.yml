@@ -61,6 +61,8 @@ jobs:
             artifact: bridge
           - flutter_version: "3.44.0"
             artifact: bridge-windows-arm64
+        exclude:
+          - artifact: ${{ github.event_name == 'workflow_dispatch' && inputs.platform == 'windows-x64' && 'bridge-windows-arm64' || '__not_excluded__' }}
     steps:
       - name: Checkout source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
