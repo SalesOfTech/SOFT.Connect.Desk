@@ -311,7 +311,7 @@ async function main() {
   const appFrames = [16, 24, 32, 48, 64, 128, 256];
   for (const size of appFrames) {
     await render(
-      size === 16 ? microSvg : size <= 32 ? smallSvg : appSvg,
+      size <= 64 ? microSvg : appSvg,
       size,
       path.join(buildDir, `app-${size}.png`),
     );
