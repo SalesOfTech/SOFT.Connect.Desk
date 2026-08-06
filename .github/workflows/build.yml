@@ -51,18 +51,8 @@ env:
 
 jobs:
   bridge:
-    name: Generate Flutter bridge ${{ matrix.flutter_version }}
+    name: Generate Flutter bridge 3.22.3
     runs-on: ubuntu-22.04
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - flutter_version: "3.22.3"
-            artifact: bridge
-          - flutter_version: "3.44.0"
-            artifact: bridge-windows-arm64
-        exclude:
-          - artifact: ${{ github.event_name == 'workflow_dispatch' && inputs.platform == 'windows-x64' && 'bridge-windows-arm64' || '__not_excluded__' }}
     steps:
       - name: Checkout source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -89,7 +79,7 @@ jobs:
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
         with:
           channel: stable
-          flutter-version: ${{ matrix.flutter_version }}
+          flutter-version: ${{ env.BRIDGE_FLUTTER_VERSION }}
           cache: true
 
       - name: Generate bridge
@@ -97,11 +87,7 @@ jobs:
         run: |
           cargo install cargo-expand --version 1.0.95 --locked
           cargo install flutter_rust_bridge_codegen --version 1.80.1 --features uuid --locked
-          if [[ "${{ matrix.flutter_version }}" == "3.22.3" ]]; then
-            sed -i -e 's/extended_text: 14.0.0/extended_text: 13.0.0/g' flutter/pubspec.yaml
-          else
-            bash .github/patches/apply_flutter_3.44_source_patches.sh
-          fi
+          sed -i -e 's/extended_text: 14.0.0/extended_text: 13.0.0/g' flutter/pubspec.yaml
           pushd flutter
           flutter pub get
           popd
@@ -113,7 +99,66 @@ jobs:
       - name: Upload bridge
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: ${{ matrix.artifact }}
+          name: bridge
+          retention-days: 7
+          path: |
+            src/bridge_generated.rs
+            src/bridge_generated.io.rs
+            flutter/lib/generated_bridge.dart
+            flutter/lib/generated_bridge.freezed.dart
+            flutter/macos/Runner/bridge_generated.h
+
+  bridge-windows-arm64:
+    name: Generate Flutter bridge 3.44.0
+    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'windows'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          submodules: recursive
+
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake g++ libclang-dev libgtk-3-dev llvm-dev nasm ninja-build pkg-config
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: rustfmt
+
+      - name: Cache Rust bridge tools
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          prefix-key: soft-connect-bridge-windows-arm64
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          channel: stable
+          flutter-version: "3.44.0"
+          cache: true
+
+      - name: Generate bridge
+        shell: bash
+        run: |
+          cargo install cargo-expand --version 1.0.95 --locked
+          cargo install flutter_rust_bridge_codegen --version 1.80.1 --features uuid --locked
+          bash .github/patches/apply_flutter_3.44_source_patches.sh
+          pushd flutter
+          flutter pub get
+          popd
+          flutter_rust_bridge_codegen \
+            --rust-input ./src/flutter_ffi.rs \
+            --dart-output ./flutter/lib/generated_bridge.dart \
+            --c-output ./flutter/macos/Runner/bridge_generated.h
+
+      - name: Upload bridge
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bridge-windows-arm64
           retention-days: 7
           path: |
             src/bridge_generated.rs
@@ -246,7 +291,7 @@ jobs:
 
   windows-arm64:
     name: Windows ARM64
-    needs: bridge
+    needs: bridge-windows-arm64
     if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'windows'
     runs-on: windows-11-arm
     steps:
