@@ -2411,6 +2411,10 @@ String _updatesText(String key) {
     'Update now': 'Обновить сейчас',
     'Download update': 'Скачать обновление',
     'Could not check for updates': 'Не удалось проверить обновления',
+    'Update settings': 'Настройки обновлений',
+    'Channel': 'Канал',
+    'Stable': 'Стабильный',
+    'Preview': 'Тестовый',
   };
   return values[key] ?? key;
 }
@@ -2429,10 +2433,13 @@ class _UpdatesState extends State<_Updates> {
   String _availableVersion = '';
   String _updateUrl = '';
   bool _checking = false;
+  bool _previewUpdates = false;
 
   @override
   void initState() {
     super.initState();
+    _previewUpdates = !bind.isIncomingOnly() &&
+        mainGetLocalBoolOptionSync(kOptionEnablePreviewUpdates);
     bind.mainGetVersion().then((version) {
       if (mounted) setState(() => _currentVersion = version);
     });
@@ -2486,6 +2493,7 @@ class _UpdatesState extends State<_Updates> {
     };
     final canInstall =
         (isWindows || isMacOS) && bind.mainIsInstalled();
+    final channel = _previewUpdates ? 'Preview' : 'Stable';
 
     return ListView(
       children: [
@@ -2496,6 +2504,12 @@ class _UpdatesState extends State<_Updates> {
               alignment: Alignment.centerLeft,
               child: Text(
                 '${_updatesText('Current version')}: ${_currentVersion.isEmpty ? '—' : _currentVersion}',
+              ),
+            ).marginOnly(left: _kContentHMargin, bottom: 12),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '${_updatesText('Channel')}: ${_updatesText(channel)}',
               ),
             ).marginOnly(left: _kContentHMargin, bottom: 12),
             if (_checking)
@@ -2537,7 +2551,7 @@ class _UpdatesState extends State<_Updates> {
           ],
         ),
         _Card(
-          title: _updatesText('Updates'),
+          title: _updatesText('Update settings'),
           children: [
             _OptionCheckBox(
               context,
@@ -2551,6 +2565,7 @@ class _UpdatesState extends State<_Updates> {
                 'Receive preview updates',
                 kOptionEnablePreviewUpdates,
                 isServer: false,
+                update: (value) => setState(() => _previewUpdates = value),
               ),
             if (isWindows)
               _OptionCheckBox(
