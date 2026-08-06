@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import os
 import socket
 import sqlite3
 import sys
@@ -53,17 +52,6 @@ def read_frame(sock: socket.socket) -> bytes:
     return bytes(payload)
 
 
-def unframe_datagram(datagram: bytes) -> bytes:
-    if not datagram:
-        raise RuntimeError("empty UDP response")
-    head_len = (datagram[0] & 0x03) + 1
-    size = int.from_bytes(datagram[:head_len], "little") >> 2
-    payload = datagram[head_len:]
-    if len(payload) != size:
-        raise RuntimeError("invalid UDP response frame")
-    return payload
-
-
 def response_result(payload: bytes) -> int:
     expected_outer_tag = varint((16 << 3) | 2)
     if not payload.startswith(expected_outer_tag):
@@ -78,13 +66,12 @@ def response_result(payload: bytes) -> int:
     return inner[1]
 
 
-def udp_register(port: int, peer_id: str, uuid: bytes, pk: bytes) -> None:
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.settimeout(3)
-    sock.sendto(frame(register_pk(peer_id, uuid, pk)), ("127.0.0.1", port))
-    datagram, _ = sock.recvfrom(1024)
-    if response_result(unframe_datagram(datagram)) != 0:
-        raise AssertionError(f"initial registration failed for {peer_id}")
+def seed_peer(db_path: str, peer_id: str, uuid: bytes, pk: bytes) -> None:
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "insert into peer(guid, id, uuid, pk, info) values(?, ?, ?, ?, ?)",
+            (peer_id.encode()[:16], peer_id, uuid, pk, '{"ip":"127.0.0.1"}'),
+        )
 
 
 def change_id(port: int, old_id: str, new_id: str, uuid: bytes) -> int:
@@ -113,8 +100,8 @@ def main() -> None:
 
     uuid_a = b"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
     uuid_b = b"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
-    udp_register(port, "111222333", uuid_a, b"a" * 32)
-    udp_register(port, "444555666", uuid_b, b"b" * 32)
+    seed_peer(db_path, "111222333", uuid_a, b"a" * 32)
+    seed_peer(db_path, "444555666", uuid_b, b"b" * 32)
 
     assert change_id(port, "111222333", "Philipp", b"wrong-uuid") == 2
     assert change_id(port, "111222333", "bad", uuid_a) == 5

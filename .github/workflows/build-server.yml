@@ -59,7 +59,10 @@ jobs:
           TEST_HBBS=no ./hbbs --port 22116 >hbbs.log 2>&1 &
           HBBS_PID=$!
           trap 'kill "$HBBS_PID" 2>/dev/null || true' EXIT
-          python3 "$GITHUB_WORKSPACE/.github/scripts/test_server_custom_id.py" 22116 "$RUNNER_TEMP/hbbs-test/db_v2.sqlite3"
+          if ! python3 "$GITHUB_WORKSPACE/.github/scripts/test_server_custom_id.py" 22116 "$RUNNER_TEMP/hbbs-test/db_v2.sqlite3"; then
+            cat hbbs.log
+            exit 1
+          fi
           kill "$HBBS_PID"
           wait "$HBBS_PID" || true
           trap - EXIT
