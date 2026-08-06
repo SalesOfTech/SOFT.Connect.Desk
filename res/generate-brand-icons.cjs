@@ -69,20 +69,15 @@ function smallIconSvg() {
 </svg>`;
 }
 
-// At 16 px the detailed fox turns into a few unrelated pixels. Use the
-// product's connection mark for caption and notification-area sizes instead.
-// It shares the same background and palette as the full application icon.
+// The regular composition is too detailed at 16 px. Keep the original fox,
+// but enlarge it and remove the connection badge and decorative border so the
+// product mark remains recognisable in captions and the system tray.
 function microIconSvg() {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>${commonDefs}</defs>
-  <rect x="34" y="34" width="956" height="956" rx="228" fill="url(#bg)"/>
-  <rect x="58" y="58" width="908" height="908" rx="202" fill="none" stroke="#2A4A64" stroke-width="12" opacity="0.88"/>
-  <g fill="none" stroke="url(#connection)" stroke-width="112" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M462 365H350c-115 0-208 66-208 147s93 147 208 147h112"/>
-    <path d="M562 365h112c115 0 208 66 208 147s-93 147-208 147H562"/>
-    <path d="M384 512h256"/>
-  </g>
+  <rect x="20" y="20" width="984" height="984" rx="226" fill="url(#bg)"/>
+  ${fox(70, 84, 884, 856, "url(#fox)")}
 </svg>`;
 }
 
@@ -192,6 +187,10 @@ async function main() {
   }
   for (const size of appFrames) {
     await render(trayColorSvg, size, path.join(buildDir, `tray-${size}.png`));
+  }
+  const captionFrames = [16, 20, 24, 32, 40, 48];
+  for (const size of captionFrames) {
+    await render(microSvg, size, path.join(buildDir, `caption-${size}.png`));
   }
   await render(appSvg, 1024, path.join(buildDir, "app-1024.png"));
 

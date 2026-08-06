@@ -20,9 +20,10 @@ static int g_active_window_count = 0;
 static HICON g_custom_large_icon_ = nullptr;
 static HICON g_custom_small_icon_ = nullptr;
 
-// Try to load icon from data\flutter_assets\assets\icon.ico if it exists.
+// Try to load an icon from data\flutter_assets\assets if it exists.
 // Returns nullptr if the file doesn't exist or can't be loaded.
-HICON LoadCustomIcon(int width, int height, HICON* cached_icon) {
+HICON LoadCustomIcon(const wchar_t* file_name, int width, int height,
+                     HICON* cached_icon) {
   if (*cached_icon != nullptr) {
     return *cached_icon;
   }
@@ -38,7 +39,8 @@ HICON LoadCustomIcon(int width, int height, HICON* cached_icon) {
   }
 
   icon_path = icon_path.substr(0, last_slash + 1);
-  icon_path += L"data\\flutter_assets\\assets\\icon.ico";
+  icon_path += L"data\\flutter_assets\\assets\\";
+  icon_path += file_name;
 
   // Check file attributes - reject if missing, directory, or reparse point (symlink/junction)
   DWORD file_attr = GetFileAttributesW(icon_path.c_str());
@@ -129,9 +131,11 @@ const wchar_t* WindowClassRegistrar::GetWindowClass() {
     // Load the two Windows icon sizes explicitly. Deriving the caption icon
     // from the large frame can make only the bright connection badge visible.
     window_class.hIcon =
-        LoadCustomIcon(large_width, large_height, &g_custom_large_icon_);
+        LoadCustomIcon(L"icon.ico", large_width, large_height,
+                       &g_custom_large_icon_);
     window_class.hIconSm =
-        LoadCustomIcon(small_width, small_height, &g_custom_small_icon_);
+        LoadCustomIcon(L"caption-icon.ico", small_width, small_height,
+                       &g_custom_small_icon_);
     if (window_class.hIcon == nullptr) {
       window_class.hIcon = (HICON)LoadImageW(
           window_class.hInstance, MAKEINTRESOURCE(IDI_APP_ICON), IMAGE_ICON,
@@ -139,7 +143,7 @@ const wchar_t* WindowClassRegistrar::GetWindowClass() {
     }
     if (window_class.hIconSm == nullptr) {
       window_class.hIconSm = (HICON)LoadImageW(
-          window_class.hInstance, MAKEINTRESOURCE(IDI_APP_ICON), IMAGE_ICON,
+          window_class.hInstance, MAKEINTRESOURCE(IDI_APP_ICON_SMALL), IMAGE_ICON,
           small_width, small_height, LR_SHARED);
     }
 

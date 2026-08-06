@@ -20,9 +20,18 @@ on:
         options:
           - all
           - windows
+          - windows-x64
           - linux
           - macos
           - android
+      package:
+        description: Package set to upload
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - portable
   push:
     tags:
       - "v*"
@@ -114,7 +123,7 @@ jobs:
   windows:
     name: Windows x64
     needs: bridge
-    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'windows'
+    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'windows' || inputs.platform == 'windows-x64'
     runs-on: windows-2022
     steps:
       - name: Checkout source
@@ -209,15 +218,29 @@ jobs:
         uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce
 
       - name: Build Windows MSI packages
+        if: github.event_name != 'workflow_dispatch' || inputs.package != 'portable'
         shell: pwsh
         run: .github/scripts/build-windows-msi.ps1 -Role $env:BUILD_ROLE -Platform x64
 
       - name: Upload Windows artifacts
+        if: github.event_name != 'workflow_dispatch' || inputs.package != 'portable'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: SOFT.Connect.Desk-Windows-${{ env.BUILD_ROLE }}
           retention-days: 14
           path: dist/windows
+
+      - name: Upload Windows portable test artifact
+        if: github.event_name == 'workflow_dispatch' && inputs.package == 'portable'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: SOFT.Connect.Desk-Windows-x64-${{ env.BUILD_ROLE }}-portable-test
+          retention-days: 7
+          path: |
+            dist/windows/**/*Portable.exe
+            dist/windows/**/*QS.exe
+            dist/windows/SHA256SUMS.txt
+          if-no-files-found: error
 
   windows-arm64:
     name: Windows ARM64
