@@ -471,18 +471,32 @@ impl Client {
             socket_addr_v6: ipv6.1.unwrap_or_default(),
             ..Default::default()
         });
-        for i in 1..=3 {
+        // Operator sessions are intentionally relay-only.  The rendezvous
+        // request still has to make one round trip to the remote peer before
+        // it can return the relay UUID, but it must not use the long direct
+        // punch back-off here: the advertised address may be RFC1918/private
+        // and is not reachable from the operator network.
+        let force_relay = interface.is_force_relay();
+        let punch_attempts = if force_relay { 5 } else { 3 };
+        for i in 1..=punch_attempts {
+            let response_timeout = if force_relay { 2_000 } else { i * 3_000 };
             log::info!(
-                "#{} {} punch attempt with {}, id: {}",
+                "#{} {} {} with {}, id: {} (timeout: {}ms)",
                 i,
-                punch_type,
-                my_addr,
-                peer
+                if force_relay { "relay" } else { "TCP" },
+                if force_relay {
+                    "negotiation attempt"
+                } else {
+                    "punch attempt"
+                },
+                peer,
+                response_timeout
             );
             socket.send(&msg_out).await?;
-            // below timeout should not bigger than hbbs's connection timeout.
+            // Keep relay negotiation bounded and retry quickly if the remote
+            // side is waking up or replacing a stale rendezvous session.
             if let Some(msg_in) =
-                crate::get_next_nonkeyexchange_msg(&mut socket, Some(i * 3000)).await
+                crate::get_next_nonkeyexchange_msg(&mut socket, Some(response_timeout)).await
             {
                 match msg_in.union {
                     Some(rendezvous_message::Union::PunchHoleResponse(ph)) => {
