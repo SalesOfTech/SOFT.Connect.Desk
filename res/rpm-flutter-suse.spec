@@ -1,5 +1,5 @@
 Name:       soft-connect-desk
-Version:    1.4.9
+Version:    1.5.0
 Release:    1
 Summary:    SOFT.Connect.Desk remote support client
 License:    AGPL-3.0-only

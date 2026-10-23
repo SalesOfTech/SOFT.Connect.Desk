@@ -2,6 +2,10 @@
 
 Branded self-hosted remote support client by **Sales Of Tech**.
 
+Development base: RustDesk **1.5.0** (`fada664df`). The next branded version is
+`1.5.0-soft.1` (Flutter build 71). This is a preparation branch, not a published
+update. Release gates are listed in [docs/release-1.5.0.md](docs/release-1.5.0.md).
+
 - Product: **SOFT.Connect.Desk**
 - Website: <https://connect.salesof.tech>
 - Download page: <https://desk.salesof.tech>
@@ -25,7 +29,7 @@ Run **Build SOFT.Connect.Desk** from the Actions tab and select:
 - role: `support`, `operator`, or `all`;
 - platform: `windows`, `linux`, `macos`, `android`, or `all`.
 
-Tag builds (`v*`) build Support clients only. macOS artifacts are ad-hoc signed,
+Tag builds (`v*`) build both Support and Operator clients. macOS artifacts are ad-hoc signed,
 not notarized, and do not require a paid Apple Developer Program membership.
 
 ## License and upstream

@@ -10,7 +10,7 @@ if [ "$1" = configure ]; then
 	if [ "systemd" == "$INITSYS" ]; then
 
 		if [ -e /etc/systemd/system/soft-connect-desk.service ]; then
-			rm /etc/systemd/system/soft-connect-desk.service /usr/lib/systemd/system/soft-connect-desk.service /usr/lib/systemd/user/soft-connect-desk.service >/dev/null  2>&1
+			rm -f /etc/systemd/system/soft-connect-desk.service /usr/lib/systemd/system/soft-connect-desk.service /usr/lib/systemd/user/soft-connect-desk.service >/dev/null  2>&1
 		fi
 		mkdir -p /usr/lib/systemd/system/
 		cp /usr/share/soft-connect-desk/files/systemd/soft-connect-desk.service /usr/lib/systemd/system/soft-connect-desk.service

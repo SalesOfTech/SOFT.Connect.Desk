@@ -44,7 +44,7 @@ env:
   MAC_RUST_VERSION: "1.81.0"
   FLUTTER_VERSION: "3.24.5"
   BRIDGE_FLUTTER_VERSION: "3.22.3"
-  VCPKG_COMMIT: "120deac3062162151622ca4860575a33844ba10b"
+  VCPKG_COMMIT: "9e593bb18ea69cc5095e012465dcd675a822ed0d"
   NDK_VERSION: "r28c"
   CARGO_NDK_VERSION: "3.1.2"
   BUILD_ROLE: ${{ github.event_name == 'workflow_dispatch' && inputs.role || 'all' }}
@@ -96,6 +96,10 @@ jobs:
             --dart-output ./flutter/lib/generated_bridge.dart \
             --c-output ./flutter/macos/Runner/bridge_generated.h
 
+      - name: Test support service status
+        working-directory: flutter
+        run: flutter test --no-pub test/service_status_card_test.dart
+
       - name: Upload bridge
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -109,7 +113,7 @@ jobs:
             flutter/macos/Runner/bridge_generated.h
 
   bridge-windows-arm64:
-    name: Generate Flutter bridge 3.44.0
+    name: Generate Flutter bridge 3.44.9
     if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'windows'
     runs-on: ubuntu-22.04
     steps:
@@ -138,7 +142,7 @@ jobs:
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
         with:
           channel: stable
-          flutter-version: "3.44.0"
+          flutter-version: "3.44.9"
           cache: true
 
       - name: Generate bridge
@@ -321,7 +325,7 @@ jobs:
         uses: subosito/flutter-action@2783a3f08e1baf891508463f8c6653c258246225
         with:
           channel: stable
-          flutter-version: "3.44.0"
+          flutter-version: "3.44.9"
           architecture: x64
 
       - name: Activate native ARM64 Dart and Flutter engine
@@ -1219,8 +1223,8 @@ jobs:
             release_channel=preview
           else
             echo "Unsupported release tag: ${GITHUB_REF_NAME}" >&2
-            echo "Stable:  v1.4.9-soft.6" >&2
-            echo "Preview: v1.4.9-soft.6-preview.1" >&2
+            echo "Stable:  v1.5.0-soft.1" >&2
+            echo "Preview: v1.5.0-soft.1-preview.1" >&2
             exit 2
           fi
 

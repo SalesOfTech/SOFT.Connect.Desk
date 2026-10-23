@@ -1,5 +1,5 @@
 pkgname=soft-connect-desk
-pkgver=1.4.9
+pkgver=1.5.0
 pkgrel=1
 pkgdesc="SOFT.Connect.Desk self-hosted remote support client"
 arch=('x86_64')

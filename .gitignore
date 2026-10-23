@@ -57,3 +57,5 @@ flutter/lib/generated_plugin_registrant.dart
 libsciter.dylib
 flutter/web/
 libs/portable/app_metadata.toml
+# libdrmtap is cloned at build time by build.py (not a submodule)
+/third_party/libdrmtap/

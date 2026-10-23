@@ -16,7 +16,6 @@ import 'package:flutter_hbb/desktop/widgets/update_progress.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/models/server_model.dart';
 import 'package:flutter_hbb/models/state_model.dart';
-import 'package:flutter_hbb/plugin/ui_manager.dart';
 import 'package:flutter_hbb/utils/multi_window_manager.dart';
 import 'package:flutter_hbb/utils/platform_channel.dart';
 import 'package:get/get.dart';
@@ -25,6 +24,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:window_size/window_size.dart' as window_size;
 import '../widgets/button.dart';
+import '../widgets/service_status_card.dart';
 
 class DesktopHomePage extends StatefulWidget {
   const DesktopHomePage({Key? key}) : super(key: key);
@@ -44,6 +44,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   var systemError = '';
   StreamSubscription? _uniLinksSubscription;
   var svcStopped = false.obs;
+  bool? _serviceConnected;
+  bool _serviceOnline = false;
   var watchIsCanScreenRecording = false;
   var watchIsProcessTrust = false;
   var watchIsInputMonitoring = false;
@@ -247,6 +249,14 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         child: loadLogo(),
       ),
       buildTip(context),
+      if (!isOutgoingOnly)
+        ServiceStatusCard(
+          stopped: svcStopped.value,
+          connected: _serviceConnected,
+          online: _serviceOnline,
+          onStart: () => start_service(true),
+          text: (key) => translate(key),
+        ),
       if (!isOutgoingOnly) buildIDBoard(context),
       if (!isOutgoingOnly) buildPasswordBoard(context),
       FutureBuilder<Widget>(
@@ -267,7 +277,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           }
         },
       ),
-      buildPluginEntry(),
     ];
     if (isIncomingOnly) {
       children.addAll([
@@ -917,9 +926,24 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         setState(() {});
       }
       final v = await mainGetBoolOption(kOptionStopService);
+      if (!mounted) return;
       if (v != svcStopped.value) {
         svcStopped.value = v;
         setState(() {});
+      }
+      try {
+        final status = jsonDecode(await bind.mainGetConnectStatus()) as Map<String, dynamic>;
+        if (!mounted) return;
+        final connected = status['service_connected'] == true;
+        final online = status['status_num'] == 1;
+        if (connected != _serviceConnected || online != _serviceOnline) {
+          setState(() {
+            _serviceConnected = connected;
+            _serviceOnline = online;
+          });
+        }
+      } catch (_) {
+        if (mounted) setState(() { _serviceConnected = null; _serviceOnline = false; });
       }
       if (watchIsCanScreenRecording) {
         if (bind.mainIsCanScreenRecording(prompt: false)) {
@@ -994,13 +1018,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         windowOnTop(null);
       } else if (call.method == kWindowRefreshCurrentUser) {
         gFFI.userModel.refreshCurrentUser();
-      } else if (call.method == kWindowGetWindowInfo) {
-        final screen = (await window_size.getWindowInfo()).screen;
-        if (screen == null) {
-          return '';
-        } else {
-          return jsonEncode(screenToMap(screen));
-        }
       } else if (call.method == kWindowGetScreenList) {
         return jsonEncode(
             (await window_size.getScreenList()).map(screenToMap).toList());
@@ -1111,21 +1128,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     if (state == AppLifecycleState.resumed) {
       shouldBeBlocked(_block, canBeBlocked);
     }
-  }
-
-  Widget buildPluginEntry() {
-    final entries = PluginUiManager.instance.entries.entries;
-    return Offstage(
-      offstage: entries.isEmpty,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ...entries.map((entry) {
-            return entry.value;
-          })
-        ],
-      ),
-    );
   }
 }
 
