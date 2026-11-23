@@ -25,6 +25,19 @@ cd "${source_root}"
 export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-10.14}"
 export CARGO_INCREMENTAL=0
 
+rust_target="$(rustc +1.81.0 -vV | sed -n 's/^host: //p')"
+for attempt in 1 2 3; do
+  if cargo +1.81.0 fetch --locked --target "${rust_target}"; then
+    break
+  fi
+  if [[ "${attempt}" == 3 ]]; then
+    echo "Cargo dependency download failed after ${attempt} attempts." >&2
+    exit 1
+  fi
+  echo "Retrying Cargo dependency download (attempt $((attempt + 1))/3)." >&2
+  sleep $((attempt * 5))
+done
+
 cargo +1.81.0 build \
   --locked \
   --lib \

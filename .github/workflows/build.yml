@@ -1042,7 +1042,14 @@ jobs:
           esac
           jni_dir="flutter/android/app/src/main/jniLibs/${abi}"
           mkdir -p "${jni_dir}" "dist/android/${{ matrix.role }}"
-          cp "target/${{ matrix.target }}/release/liblibrustdesk.so" "${jni_dir}/librustdesk.so"
+          native_library="target/${{ matrix.target }}/release/liblibrustdesk.so"
+          ndk_llvm="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          if ! "${ndk_llvm}/llvm-nm" --dynamic --defined-only "${native_library}" \
+            | awk '$NF == "Java_tech_salesof_softconnectdesk_DocumentLogs_setEnabled" { found = 1 } END { exit !found }'; then
+            echo "Android native library is missing the DocumentLogs JNI entry point." >&2
+            exit 1
+          fi
+          cp "${native_library}" "${jni_dir}/librustdesk.so"
           cp "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/${libcxx}/libc++_shared.so" "${jni_dir}/"
           sed -i 's/org.gradle.jvmargs=-Xmx1024M/org.gradle.jvmargs=-Xmx2g/g' flutter/android/gradle.properties
           case "${{ matrix.role }}" in
