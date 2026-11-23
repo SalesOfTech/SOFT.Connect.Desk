@@ -1,18 +1,23 @@
+#[cfg(not(any(feature = "soft-connect-support", feature = "soft-connect-operator")))]
 use crate::{
     common::{display_version_from_release_id, release_id_from_update_url},
     hbbs_http::create_http_client_with_url_strict,
-    update_metadata::{UpdateArtifactQuery, UpdateMetadataRequirements, VerifiedUpdateArtifact},
+    update_metadata::UpdateMetadataRequirements,
 };
+use crate::update_metadata::{UpdateArtifactQuery, VerifiedUpdateArtifact};
 use hbb_common::{bail, ResultType};
-use std::{
-    io::Read,
-    path::{Component, Path, PathBuf},
-    sync::Mutex,
-    time::Duration,
-};
+use std::{path::{Component, Path, PathBuf}, sync::Mutex};
+#[cfg(not(any(feature = "soft-connect-support", feature = "soft-connect-operator")))]
+use std::{io::Read, time::Duration};
 
+#[cfg(not(any(feature = "soft-connect-support", feature = "soft-connect-operator")))]
 const UPDATE_SIDECAR_HTTP_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+#[cfg(not(any(feature = "soft-connect-support", feature = "soft-connect-operator")))]
 const UPDATE_METADATA_SIDECAR_MAX_BYTES: u64 = 1024 * 1024;
+#[cfg(any(feature = "soft-connect-support", feature = "soft-connect-operator"))]
+const UPDATE_REPOSITORY: (&str, &str) = ("SalesOfTech", "SOFT.Connect.Desk");
+#[cfg(not(any(feature = "soft-connect-support", feature = "soft-connect-operator")))]
+const UPDATE_REPOSITORY: (&str, &str) = ("rustdesk", "rustdesk");
 
 lazy_static::lazy_static! {
     static ref VERIFIED_UPDATE_ARTIFACT: Mutex<Option<VerifiedUpdateArtifact>> = Mutex::new(None);
@@ -104,6 +109,30 @@ pub(super) fn verified_update_artifact_from_release_page_url(
     update_url: &str,
     query: &UpdateArtifactQuery<'_>,
 ) -> ResultType<VerifiedUpdateArtifact> {
+    verified_release_artifact(update_url, query)
+}
+
+#[cfg(any(feature = "soft-connect-support", feature = "soft-connect-operator"))]
+fn verified_release_artifact(
+    update_url: &str,
+    query: &UpdateArtifactQuery<'_>,
+) -> ResultType<VerifiedUpdateArtifact> {
+    let metadata = crate::common::SOFT_UPDATE_ARTIFACT.lock().unwrap();
+    if let Some((release_url, artifact)) = metadata.as_ref() {
+        if release_url == update_url
+            && artifact.url.rsplit_once('.').map(|(_, ext)| ext) == Some(query.format)
+        {
+            return Ok(artifact.clone());
+        }
+    }
+    bail!("No matching verified metadata for this SOFT.Connect.Desk release")
+}
+
+#[cfg(not(any(feature = "soft-connect-support", feature = "soft-connect-operator")))]
+fn verified_release_artifact(
+    update_url: &str,
+    query: &UpdateArtifactQuery<'_>,
+) -> ResultType<VerifiedUpdateArtifact> {
     let release_id = release_id_from_update_url(update_url)?;
     let display_version = display_version_from_release_id(&release_id)?;
     let expected_artifact_url_prefix =
@@ -121,6 +150,7 @@ pub(super) fn verified_update_artifact_from_release_page_url(
     crate::update_metadata::verify_update_metadata(&metadata_bytes, &signature_bytes, requirements)
 }
 
+#[cfg(not(any(feature = "soft-connect-support", feature = "soft-connect-operator")))]
 fn fetch_update_sidecar_bytes(url: &str) -> ResultType<Vec<u8>> {
     let client = create_http_client_with_url_strict(url)?;
     let mut response = client
@@ -140,6 +170,7 @@ fn fetch_update_sidecar_bytes(url: &str) -> ResultType<Vec<u8>> {
     )
 }
 
+#[cfg(not(any(feature = "soft-connect-support", feature = "soft-connect-operator")))]
 fn read_limited_response_bytes<R: Read>(
     reader: &mut R,
     limit: u64,
@@ -177,8 +208,7 @@ pub fn get_update_download_file_from_url(url: &str) -> Option<PathBuf> {
     let tag = segments.next()?;
     let filename = segments.next()?;
 
-    if owner != "rustdesk"
-        || repo != "rustdesk"
+    if (owner, repo) != UPDATE_REPOSITORY
         || releases != "releases"
         || download != "download"
         || tag.is_empty()
@@ -213,14 +243,15 @@ mod tests {
 
     #[test]
     fn update_download_file_accepts_expected_github_asset_urls() {
+        let (owner, repo) = UPDATE_REPOSITORY;
         let file = get_update_download_file_from_url(
-            "https://github.com/rustdesk/rustdesk/releases/download/1.4.0/rustdesk-1.4.0-x86_64.dmg",
+            &format!("https://github.com/{owner}/{repo}/releases/download/1.4.0/client.dmg"),
         )
         .expect("valid GitHub release asset URL");
 
         assert_eq!(
             file.file_name().and_then(|name| name.to_str()),
-            Some("rustdesk-1.4.0-x86_64.dmg")
+            Some("client.dmg")
         );
     }
 

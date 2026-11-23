@@ -70,6 +70,9 @@ jobs:
           toolchain: ${{ env.RUST_VERSION }}
           components: rustfmt
 
+      - name: Check locked Cargo dependencies
+        run: cargo metadata --locked --format-version 1 > /dev/null
+
       - name: Cache Rust bridge tools
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
         with:
