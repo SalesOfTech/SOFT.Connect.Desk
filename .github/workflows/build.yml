@@ -43,6 +43,7 @@ env:
   RUST_VERSION: "1.75.0"
   MAC_RUST_VERSION: "1.81.0"
   FLUTTER_VERSION: "3.24.5"
+  ARM64_FLUTTER_VERSION: "3.44.9"
   BRIDGE_FLUTTER_VERSION: "3.22.3"
   VCPKG_COMMIT: "9e593bb18ea69cc5095e012465dcd675a822ed0d"
   NDK_VERSION: "r28c"
@@ -117,7 +118,7 @@ jobs:
 
   bridge-windows-arm64:
     name: Generate Flutter bridge 3.44.9
-    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'windows'
+    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'windows' || inputs.platform == 'macos'
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout source
@@ -145,7 +146,7 @@ jobs:
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
         with:
           channel: stable
-          flutter-version: "3.44.9"
+          flutter-version: ${{ env.ARM64_FLUTTER_VERSION }}
           cache: true
 
       - name: Generate bridge
@@ -328,7 +329,7 @@ jobs:
         uses: subosito/flutter-action@2783a3f08e1baf891508463f8c6653c258246225
         with:
           channel: stable
-          flutter-version: "3.44.9"
+          flutter-version: ${{ env.ARM64_FLUTTER_VERSION }}
           architecture: x64
 
       - name: Activate native ARM64 Dart and Flutter engine
@@ -745,7 +746,7 @@ jobs:
 
   macos:
     name: macOS ${{ matrix.arch }} ${{ matrix.role }}
-    needs: bridge
+    needs: [bridge, bridge-windows-arm64]
     if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'macos'
     strategy:
       fail-fast: false
@@ -754,7 +755,7 @@ jobs:
           - x86_64
           - arm64
         role: ${{ fromJSON(github.event_name == 'workflow_dispatch' && (inputs.role == 'all' && '["support","operator"]' || format('["{0}"]', inputs.role)) || '["support","operator"]') }}
-    runs-on: ${{ matrix.arch == 'x86_64' && 'macos-15-intel' || 'macos-14' }}
+    runs-on: ${{ matrix.arch == 'x86_64' && 'macos-15-intel' || 'macos-15' }}
     steps:
       - name: Checkout source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -764,7 +765,7 @@ jobs:
       - name: Restore bridge
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          name: bridge
+          name: ${{ matrix.arch == 'arm64' && 'bridge-windows-arm64' || 'bridge' }}
           path: .
 
       - name: Install native build tools
@@ -782,10 +783,20 @@ jobs:
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
         with:
           channel: stable
-          flutter-version: ${{ env.FLUTTER_VERSION }}
+          flutter-version: ${{ matrix.arch == 'arm64' && env.ARM64_FLUTTER_VERSION || env.FLUTTER_VERSION }}
           cache: true
 
+      - name: Patch sources for Flutter 3.44
+        if: matrix.arch == 'arm64'
+        shell: bash
+        run: |
+          flutter config --no-enable-swift-package-manager
+          brew install gnu-sed
+          export PATH="$(brew --prefix gnu-sed)/libexec/gnubin:$PATH"
+          bash .github/patches/apply_flutter_3.44_source_patches.sh
+
       - name: Patch Flutter
+        if: matrix.arch == 'x86_64'
         shell: bash
         run: |
           flutter_root="$(cd "$(dirname "$(which flutter)")/.." && pwd)"
