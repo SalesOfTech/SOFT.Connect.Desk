@@ -2768,6 +2768,14 @@ pub fn main_get_common(key: String) -> String {
             } else {
                 file
             }
+        } else if let Some(release_page_url) = key.strip_prefix("verified-download-url-") {
+            let known_release_url = crate::common::SOFTWARE_UPDATE_URL.lock().unwrap().clone();
+            let download_url = crate::common::SOFTWARE_UPDATE_DOWNLOAD_URL.lock().unwrap().clone();
+            if release_page_url == known_release_url && !download_url.is_empty() {
+                download_url
+            } else {
+                "error:Update metadata is unavailable or no longer matches this release".to_owned()
+            }
         } else {
             "".to_owned()
         }

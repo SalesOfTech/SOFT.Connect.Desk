@@ -1223,8 +1223,8 @@ jobs:
             release_channel=preview
           else
             echo "Unsupported release tag: ${GITHUB_REF_NAME}" >&2
-            echo "Stable:  v1.5.0-soft.1" >&2
-            echo "Preview: v1.5.0-soft.1-preview.1" >&2
+            echo "Stable:  v1.5.3-soft.1" >&2
+            echo "Preview: v1.5.3-soft.1-preview.1" >&2
             exit 2
           fi
 

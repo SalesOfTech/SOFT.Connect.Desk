@@ -93,6 +93,7 @@ pub mod input {
 
 lazy_static::lazy_static! {
     pub static ref SOFTWARE_UPDATE_URL: Arc<Mutex<String>> = Default::default();
+    pub static ref SOFTWARE_UPDATE_DOWNLOAD_URL: Arc<Mutex<String>> = Default::default();
     pub static ref SOFTWARE_UPDATE_FILE: Arc<Mutex<String>> = Default::default();
     pub static ref SOFTWARE_UPDATE_SHA256: Arc<Mutex<String>> = Default::default();
     pub static ref DEVICE_ID: Arc<Mutex<String>> = Default::default();
@@ -1249,6 +1250,12 @@ pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
             .filter(|sha256| sha256.len() == 64 && sha256.chars().all(|c| c.is_ascii_hexdigit()))
             .context("Compatible update is missing from update manifest")?;
         let response_url = release.html_url;
+        let download_url = release
+            .assets
+            .iter()
+            .find(|asset| asset.name == expected_asset)
+            .map(|asset| asset.browser_download_url.clone())
+            .context("Compatible update asset has no download URL")?;
         push_software_update_event(
             "available",
             &response_url,
@@ -1256,10 +1263,12 @@ pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
             "",
         );
         *SOFTWARE_UPDATE_URL.lock().unwrap() = response_url;
+        *SOFTWARE_UPDATE_DOWNLOAD_URL.lock().unwrap() = download_url;
         *SOFTWARE_UPDATE_FILE.lock().unwrap() = expected_asset;
         *SOFTWARE_UPDATE_SHA256.lock().unwrap() = expected_sha256;
     } else {
         *SOFTWARE_UPDATE_URL.lock().unwrap() = "".to_string();
+        *SOFTWARE_UPDATE_DOWNLOAD_URL.lock().unwrap() = "".to_string();
         *SOFTWARE_UPDATE_FILE.lock().unwrap() = "".to_string();
         *SOFTWARE_UPDATE_SHA256.lock().unwrap() = "".to_string();
         push_software_update_event("up_to_date", "", crate::VERSION, "");

@@ -14,7 +14,7 @@ AppDir:
     id: soft-connect-desk
     name: SOFT.Connect.Desk
     icon: soft-connect-desk
-    version: 1.5.0
+    version: 1.5.3
     exec: usr/share/soft-connect-desk/soft-connect-desk
     exec_args: $@
   apt:

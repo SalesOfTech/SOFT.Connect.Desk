@@ -2,9 +2,9 @@
 
 Branded self-hosted remote support client by **Sales Of Tech**.
 
-Development base: RustDesk **1.5.0** (`fada664df`). The next branded version is
-`1.5.0-soft.1` (Flutter build 71). This is a preparation branch, not a published
-update. Release gates are listed in [docs/release-1.5.0.md](docs/release-1.5.0.md).
+Development base: RustDesk **1.5.3** (`95cca3f66`). The next branded version is
+`1.5.3-soft.1` (Flutter build 72). This is a preparation branch, not a published
+update. Release gates are listed in [docs/release-1.5.3.md](docs/release-1.5.3.md).
 
 - Product: **SOFT.Connect.Desk**
 - Website: <https://connect.salesof.tech>
