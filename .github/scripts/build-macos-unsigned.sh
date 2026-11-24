@@ -45,6 +45,15 @@ cargo +1.81.0 build \
   --release \
   --features "flutter,hwcodec,unix-file-copy-paste,${role_feature}"
 
+if [[ "${role}" == "operator" ]]; then
+  cargo +1.81.0 test \
+    --locked \
+    --lib \
+    --release \
+    --features "flutter,hwcodec,unix-file-copy-paste,${role_feature}" \
+    -- operator_auth::tests::
+fi
+
 python3 ./build.py --flutter --skip-cargo
 
 app_path="${source_root}/flutter/build/macos/Build/Products/Release/SOFT.Connect.Desk.app"

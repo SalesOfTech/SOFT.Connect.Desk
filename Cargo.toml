@@ -32,7 +32,7 @@ hwcodec = ["scrap/hwcodec"]
 vram = ["scrap/vram"]
 mediacodec = ["scrap/mediacodec"]
 soft-connect-support = ["hbb_common/soft-connect-support"]
-soft-connect-operator = ["hbb_common/soft-connect-operator"]
+soft-connect-operator = ["hbb_common/soft-connect-operator", "dep:security-framework"]
 drm = ["scrap/drm"]
 # The display wake, as its OWN compile gate on top of `drm`. Everything else in the drm backend
 # READS (it captures a scanout); the wake WRITES, injecting one synthetic pointer event from the
@@ -168,6 +168,7 @@ cocoa = "0.24"
 dispatch = "0.2"
 core-foundation = "0.9"
 core-graphics = "0.22"
+security-framework = { version = "=2.10.0", optional = true }
 include_dir = "0.7"
 fruitbasket = "0.10"
 objc_id = "0.1"

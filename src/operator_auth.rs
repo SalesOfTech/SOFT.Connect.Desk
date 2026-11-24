@@ -7,6 +7,8 @@ use hbb_common::{
 };
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use reqwest::blocking::{Client, Response};
+#[cfg(target_os = "macos")]
+use security_framework::passwords;
 use serde::{
     de::{self, Deserializer, Visitor},
     Deserialize, Serialize,
@@ -42,16 +44,28 @@ const CALLBACK_TIMEOUT: Duration = Duration::from_secs(300);
 const HTTP_TIMEOUT: Duration = Duration::from_secs(20);
 const CLOCK_SKEW_SECONDS: u64 = 60;
 
+#[cfg(target_os = "macos")]
+const MAC_SESSION_ENTRY: &str = "operator-session-macos-v1";
+#[cfg(target_os = "macos")]
+const ERR_SEC_ITEM_NOT_FOUND: i32 = -25300;
+#[cfg(not(target_os = "macos"))]
 const ACCESS_TOKEN_ENTRY: &str = "operator-access-token";
+#[cfg(not(target_os = "macos"))]
 const ID_TOKEN_ENTRY: &str = "operator-id-token";
+#[cfg(not(target_os = "macos"))]
 const REFRESH_TOKEN_ENTRY: &str = "operator-refresh-token";
+#[cfg(not(target_os = "macos"))]
 const SESSION_ENTRY: &str = "operator-session";
 // Windows Credential Manager allows a 2560-byte credential blob. keyring
 // stores passwords as UTF-16, so ASCII data is limited to 1280 characters.
 // Keep headroom for platform differences and segment every larger value.
+#[cfg(not(target_os = "macos"))]
 const SECRET_DIRECT_LIMIT: usize = 1_200;
+#[cfg(not(target_os = "macos"))]
 const SECRET_PART_SIZE: usize = 1_200;
+#[cfg(not(target_os = "macos"))]
 const SECRET_MAX_PARTS: usize = 32;
+#[cfg(not(target_os = "macos"))]
 const SECRET_MANIFEST_PREFIX: &str = "SCDS1";
 
 lazy_static! {
@@ -59,6 +73,9 @@ lazy_static! {
     static ref OPERATION_RUNNING: AtomicBool = AtomicBool::new(false);
     static ref CANCEL_LOGIN: AtomicBool = AtomicBool::new(false);
 }
+
+#[cfg(target_os = "macos")]
+static OPEN_MAC_SESSION: Mutex<Option<VerifiedSession>> = Mutex::new(None);
 
 #[derive(Clone, Default, Deserialize, Serialize)]
 struct OperatorProfile {
@@ -190,6 +207,7 @@ struct Jwk {
     e: String,
 }
 
+#[cfg_attr(target_os = "macos", derive(Clone, Deserialize, Serialize))]
 struct VerifiedSession {
     access_token: String,
     id_token: String,
@@ -228,6 +246,12 @@ pub fn connection_allowed() -> bool {
         if state.status == "authorized" && state.expires_at > now_unix() {
             return true;
         }
+        // A running Mac Operator already owns the session lifecycle. Only a
+        // fresh process (e.g. a command-line launch) needs to check Keychain.
+        #[cfg(target_os = "macos")]
+        if state.initialized {
+            return false;
+        }
     }
     match validate_stored_session_for_connection() {
         Ok(()) => true,
@@ -245,20 +269,19 @@ pub fn start_login() {
     CANCEL_LOGIN.store(false, Ordering::Release);
     set_state("authenticating", "", None, 0, true);
     std::thread::spawn(|| {
-        let result = login_flow();
-        OPERATION_RUNNING.store(false, Ordering::Release);
+        let result = login_flow().and_then(|session| {
+            store_session(&session).context("Не удалось сохранить защищённую сессию")?;
+            Ok(session)
+        });
         match result {
             Ok(session) => {
                 let profile = session.profile.clone();
                 let expires_at = session.expires_at;
-                if let Err(err) = store_session(&session) {
-                    set_error(format!("Не удалось сохранить защищённую сессию: {err}"));
-                    return;
-                }
                 set_state("authorized", "", Some(profile), expires_at, true);
             }
             Err(err) => set_error(user_facing_error(&err)),
         }
+        OPERATION_RUNNING.store(false, Ordering::Release);
     });
 }
 
@@ -272,6 +295,11 @@ pub fn logout() {
     }
     set_state("signing_out", "", None, 0, true);
     std::thread::spawn(|| {
+        #[cfg(target_os = "macos")]
+        let refresh_token = lock_mac_session()
+            .take()
+            .map(|session| session.refresh_token);
+        #[cfg(not(target_os = "macos"))]
         let refresh_token = read_secret(REFRESH_TOKEN_ENTRY).ok();
         let revoke_result = refresh_token
             .as_deref()
@@ -312,7 +340,6 @@ fn ensure_initialized() {
     }
     std::thread::spawn(|| {
         let result = restore_or_refresh_session();
-        OPERATION_RUNNING.store(false, Ordering::Release);
         match result {
             Ok(Some(session)) => set_state(
                 "authorized",
@@ -323,10 +350,12 @@ fn ensure_initialized() {
             ),
             Ok(None) => set_state("unauthenticated", "", None, 0, true),
             Err(err) => {
+                #[cfg(not(target_os = "macos"))]
                 let _ = delete_session();
                 set_error(user_facing_error(&err));
             }
         }
+        OPERATION_RUNNING.store(false, Ordering::Release);
     });
 }
 
@@ -336,7 +365,6 @@ fn start_refresh() {
     }
     std::thread::spawn(|| {
         let result = refresh_stored_session();
-        OPERATION_RUNNING.store(false, Ordering::Release);
         match result {
             Ok(session) => set_state(
                 "authorized",
@@ -353,9 +381,11 @@ fn start_refresh() {
                 ));
             }
         }
+        OPERATION_RUNNING.store(false, Ordering::Release);
     });
 }
 
+#[cfg(not(target_os = "macos"))]
 fn restore_or_refresh_session() -> Result<Option<StoredSession>> {
     let stored = match read_stored_session()? {
         Some(value) => value,
@@ -393,6 +423,7 @@ fn restore_or_refresh_session() -> Result<Option<StoredSession>> {
     Ok(Some(verified))
 }
 
+#[cfg(not(target_os = "macos"))]
 fn refresh_stored_session() -> Result<StoredSession> {
     let refresh_token = read_secret(REFRESH_TOKEN_ENTRY)?;
     let id_token = read_secret(ID_TOKEN_ENTRY).ok();
@@ -406,6 +437,16 @@ fn refresh_stored_session() -> Result<StoredSession> {
 }
 
 fn validate_stored_session_for_connection() -> Result<()> {
+    #[cfg(target_os = "macos")]
+    let (stored, access_token, id_token) = {
+        let session = read_macos_session()?.context("защищённая OAuth-сессия отсутствует")?;
+        (
+            mac_session_metadata(&session),
+            session.access_token,
+            session.id_token,
+        )
+    };
+    #[cfg(not(target_os = "macos"))]
     let stored = read_stored_session()?.context("защищённая OAuth-сессия отсутствует")?;
     if stored.expires_at <= now_unix() {
         bail!("OAuth-сессия истекла");
@@ -417,7 +458,9 @@ fn validate_stored_session_for_connection() -> Result<()> {
     {
         bail!("OAuth-сессия не содержит Operator scope");
     }
+    #[cfg(not(target_os = "macos"))]
     let access_token = read_secret(ACCESS_TOKEN_ENTRY)?;
+    #[cfg(not(target_os = "macos"))]
     let id_token = read_secret(ID_TOKEN_ENTRY)?;
     let client = http_client()?;
     let jwks = fetch_jwks(&client)?;
@@ -887,6 +930,109 @@ fn http_client() -> Result<Client> {
         .context("не удалось создать HTTPS-клиент")
 }
 
+#[cfg(target_os = "macos")]
+fn lock_mac_session() -> std::sync::MutexGuard<'static, Option<VerifiedSession>> {
+    OPEN_MAC_SESSION
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+#[cfg(target_os = "macos")]
+fn mac_session_metadata(session: &VerifiedSession) -> StoredSession {
+    StoredSession {
+        expires_at: session.expires_at,
+        scope: session.scope.clone(),
+        profile: session.profile.clone(),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn read_macos_session() -> Result<Option<VerifiedSession>> {
+    // Do not read the legacy items: importing them would prompt once per
+    // stored fragment. Users of the legacy format sign in again instead.
+    let data = match passwords::get_generic_password(KEYRING_SERVICE, MAC_SESSION_ENTRY) {
+        Ok(data) => data,
+        Err(err) if err.code() == ERR_SEC_ITEM_NOT_FOUND => return Ok(None),
+        Err(err) => return Err(err).context("Не удалось открыть сессию в Связке ключей"),
+    };
+    serde_json::from_slice(&data)
+        .map(Some)
+        .map_err(|_| anyhow!("Повреждена защищённая сессия в Связке ключей"))
+}
+
+#[cfg(target_os = "macos")]
+fn store_session(session: &VerifiedSession) -> Result<()> {
+    let data = serde_json::to_vec(session)?;
+    // SecItemAdd/Update replaces the whole session without reading the old
+    // password first, including the rotating refresh token.
+    passwords::set_generic_password(KEYRING_SERVICE, MAC_SESSION_ENTRY, &data)
+        .context("Не удалось записать сессию в Связку ключей")?;
+    *lock_mac_session() = Some(session.clone());
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn delete_session() -> Result<()> {
+    *lock_mac_session() = None;
+    match passwords::delete_generic_password(KEYRING_SERVICE, MAC_SESSION_ENTRY) {
+        Ok(()) => Ok(()),
+        Err(err) if err.code() == ERR_SEC_ITEM_NOT_FOUND => Ok(()),
+        Err(err) => Err(err).context("Не удалось удалить сессию из Связки ключей"),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn restore_or_refresh_session() -> Result<Option<StoredSession>> {
+    let Some(mut session) = read_macos_session()? else {
+        return Ok(None);
+    };
+    if session.expires_at <= now_unix().saturating_add(CLOCK_SKEW_SECONDS) {
+        let result = refresh_macos_session(&session.refresh_token, &session.id_token);
+        if result.is_err() {
+            if let Err(err) = delete_session() {
+                log::warn!("Не удалось очистить просроченную OAuth-сессию: {err}");
+            }
+        }
+        return result.map(Some);
+    }
+    if !session
+        .scope
+        .split_whitespace()
+        .any(|scope| scope == REQUIRED_PERMISSION)
+    {
+        bail!("OAuth-сессия не содержит Operator scope");
+    }
+    let client = http_client()?;
+    let jwks = fetch_jwks(&client)?;
+    let access_claims = verify_access_token(&session.access_token, &jwks)?;
+    let id_claims = verify_id_token(&session.id_token, &jwks, None)?;
+    if access_claims.sub != id_claims.sub {
+        bail!("subject access token и ID token не совпадает");
+    }
+    session.profile = verify_me(&client, &session.access_token, &access_claims)?;
+    let metadata = mac_session_metadata(&session);
+    *lock_mac_session() = Some(session);
+    Ok(Some(metadata))
+}
+
+#[cfg(target_os = "macos")]
+fn refresh_stored_session() -> Result<StoredSession> {
+    let (refresh_token, id_token) = {
+        let session = lock_mac_session();
+        let session = session.as_ref().context("OAuth-сессия не открыта")?;
+        (session.refresh_token.clone(), session.id_token.clone())
+    };
+    refresh_macos_session(&refresh_token, &id_token)
+}
+
+#[cfg(target_os = "macos")]
+fn refresh_macos_session(refresh_token: &str, id_token: &str) -> Result<StoredSession> {
+    let session = refresh_tokens(refresh_token, Some(id_token))?;
+    store_session(&session)?;
+    Ok(mac_session_metadata(&session))
+}
+
+#[cfg(not(target_os = "macos"))]
 fn store_session(session: &VerifiedSession) -> Result<()> {
     let metadata = StoredSession {
         expires_at: session.expires_at,
@@ -904,6 +1050,7 @@ fn store_session(session: &VerifiedSession) -> Result<()> {
     Ok(())
 }
 
+#[cfg(not(target_os = "macos"))]
 fn read_stored_session() -> Result<Option<StoredSession>> {
     let value = match read_secret_optional(SESSION_ENTRY)? {
         Some(value) => value,
@@ -914,6 +1061,7 @@ fn read_stored_session() -> Result<Option<StoredSession>> {
         .context("повреждены метаданные защищённой OAuth-сессии")
 }
 
+#[cfg(not(target_os = "macos"))]
 fn delete_session() -> Result<()> {
     let mut errors = Vec::new();
     for entry in [
@@ -933,11 +1081,13 @@ fn delete_session() -> Result<()> {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 fn credential_entry(name: &str) -> Result<keyring::Entry> {
     keyring::Entry::new(KEYRING_SERVICE, name)
         .map_err(|err| anyhow!("системное хранилище недоступно: {err}"))
 }
 
+#[cfg(not(target_os = "macos"))]
 fn write_secret(name: &str, value: &str) -> Result<()> {
     let previous = read_secret_value_optional(name)?;
     let previous_manifest = previous
@@ -995,10 +1145,12 @@ fn write_secret(name: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
+#[cfg(not(target_os = "macos"))]
 fn read_secret(name: &str) -> Result<String> {
     read_secret_optional(name)?.ok_or_else(|| anyhow!("не найдена защищённая запись {name}"))
 }
 
+#[cfg(not(target_os = "macos"))]
 fn read_secret_optional(name: &str) -> Result<Option<String>> {
     let value = match read_secret_value_optional(name)? {
         Some(value) => value,
@@ -1028,6 +1180,7 @@ fn read_secret_optional(name: &str) -> Result<Option<String>> {
         .context("повреждена кодировка защищённой OAuth-сессии")
 }
 
+#[cfg(not(target_os = "macos"))]
 fn read_secret_value_optional(name: &str) -> Result<Option<String>> {
     match credential_entry(name)?.get_password() {
         Ok(value) => Ok(Some(value)),
@@ -1036,6 +1189,7 @@ fn read_secret_value_optional(name: &str) -> Result<Option<String>> {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 fn delete_secret(name: &str) -> Result<()> {
     let manifest = read_secret_value_optional(name)?
         .as_deref()
@@ -1049,12 +1203,14 @@ fn delete_secret(name: &str) -> Result<()> {
     Ok(())
 }
 
+#[cfg(not(target_os = "macos"))]
 fn write_secret_value(name: &str, value: &str) -> Result<()> {
     credential_entry(name)?
         .set_password(value)
         .map_err(|err| anyhow!("не удалось записать {name}: {err}"))
 }
 
+#[cfg(not(target_os = "macos"))]
 fn delete_secret_value(name: &str) -> Result<()> {
     match credential_entry(name)?.delete_password() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
@@ -1062,6 +1218,7 @@ fn delete_secret_value(name: &str) -> Result<()> {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 #[derive(Clone)]
 struct SecretManifest {
     slot: char,
@@ -1069,6 +1226,7 @@ struct SecretManifest {
     digest: String,
 }
 
+#[cfg(not(target_os = "macos"))]
 fn parse_secret_manifest(value: &str) -> Result<Option<SecretManifest>> {
     if !value.starts_with(SECRET_MANIFEST_PREFIX) {
         return Ok(None);
@@ -1093,10 +1251,12 @@ fn parse_secret_manifest(value: &str) -> Result<Option<SecretManifest>> {
     }))
 }
 
+#[cfg(not(target_os = "macos"))]
 fn secret_part_name(name: &str, slot: char, index: usize) -> String {
     format!("{name}-segment-{slot}-{index}")
 }
 
+#[cfg(not(target_os = "macos"))]
 fn remove_secret_parts(name: &str, slot: char, count: usize, tolerate_missing: bool) -> Result<()> {
     for index in 0..count {
         let part_name = secret_part_name(name, slot, index);
@@ -1190,6 +1350,30 @@ fn emit_event(event: Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_session_record_keeps_long_tokens_and_profile_together() {
+        let session = VerifiedSession {
+            access_token: "a".repeat(5_000),
+            id_token: "b".repeat(5_000),
+            refresh_token: "rotated-token".into(),
+            expires_at: 123_456,
+            scope: SCOPES.into(),
+            profile: OperatorProfile {
+                sub: "employee:test".into(),
+                ..Default::default()
+            },
+        };
+        let record = serde_json::to_vec(&session).unwrap();
+        let restored: VerifiedSession = serde_json::from_slice(&record).unwrap();
+        assert_eq!(restored.access_token, session.access_token);
+        assert_eq!(restored.id_token, session.id_token);
+        assert_eq!(restored.refresh_token, session.refresh_token);
+        assert_eq!(restored.expires_at, session.expires_at);
+        assert_eq!(restored.scope, session.scope);
+        assert_eq!(restored.profile.sub, session.profile.sub);
+    }
 
     #[derive(Deserialize)]
     struct NumericDateTest {
