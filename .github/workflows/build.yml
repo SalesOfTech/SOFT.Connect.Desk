@@ -23,6 +23,7 @@ on:
           - windows-x64
           - linux
           - macos
+          - macos-diagnostic
       package:
         description: Package set to upload
         required: true
@@ -50,6 +51,7 @@ env:
 jobs:
   bridge:
     name: Generate Flutter bridge 3.22.3
+    if: github.event_name != 'workflow_dispatch' || inputs.platform != 'macos-diagnostic'
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout source
@@ -859,6 +861,34 @@ jobs:
           name: SOFT.Connect.Desk-macOS-${{ matrix.arch }}-${{ matrix.role }}
           retention-days: 14
           path: dist/macos
+
+  macos-diagnostic:
+    name: Verify published soft.6 DMGs on Apple Silicon
+    if: github.event_name == 'workflow_dispatch' && inputs.platform == 'macos-diagnostic'
+    runs-on: macos-26
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - name: Download and check the original published packages
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          scratch="$(mktemp -d "${RUNNER_TEMP}/desk-soft6.XXXXXXXX")"
+          trap 'find "${scratch}" -depth -delete' EXIT
+          gh release download v1.4.9-soft.6 --repo "${GITHUB_REPOSITORY}" \
+            --pattern 'SOFT.Connect.Desk-*-macos-arm64-unsigned.dmg*' --dir "${scratch}"
+          failed=0
+          for role in Support Operator; do
+            dmg="${scratch}/SOFT.Connect.Desk-${role}-macos-arm64-unsigned.dmg"
+            checksum="$(awk 'NR==1{print $1}' "${dmg}.sha256")"
+            printf '%s  %s\n' "${checksum}" "${dmg}" | shasum -a 256 -c -
+            if ! bash .github/scripts/verify-macos-dmg.sh "${dmg}" arm64 1.4.9-soft.6; then
+              failed=1
+            fi
+          done
+          exit "${failed}"
 
   release:
     name: Publish GitHub Release
