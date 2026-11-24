@@ -198,9 +198,17 @@ function Build-Role {
             throw "Flutter bundle executable not found: $innerExe"
         }
 
-        $versionMatch = Select-String -LiteralPath (Join-Path $sourceRoot "Cargo.toml") `
-            -Pattern '^version = "([^"]+)"$' | Select-Object -First 1
-        $expectedVersion = $versionMatch.Matches[0].Groups[1].Value
+        $expectedVersion = if ($env:SOFT_CONNECT_BUILD_VERSION) {
+            $env:SOFT_CONNECT_BUILD_VERSION.TrimStart('v')
+        }
+        elseif ($env:GITHUB_REF_TYPE -ceq "tag") {
+            $env:GITHUB_REF_NAME.TrimStart('v')
+        }
+        else {
+            $versionMatch = Select-String -LiteralPath (Join-Path $sourceRoot "Cargo.toml") `
+                -Pattern '^version = "([^"]+)"$' | Select-Object -First 1
+            $versionMatch.Matches[0].Groups[1].Value
+        }
         # Start-Process with redirected streams can lose ExitCode on Windows.
         $startInfo = [System.Diagnostics.ProcessStartInfo]::new($innerExe, "--version")
         $startInfo.WorkingDirectory = $bundleRoot

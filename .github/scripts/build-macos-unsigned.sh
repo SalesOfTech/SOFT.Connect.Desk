@@ -75,7 +75,14 @@ hdiutil create \
   -ov \
   "${dmg_path}"
 
-version="$(sed -n 's/^version = "\([^"]*\)"$/\1/p' Cargo.toml)"
+if [[ -n "${SOFT_CONNECT_BUILD_VERSION:-}" ]]; then
+  version="${SOFT_CONNECT_BUILD_VERSION#v}"
+elif [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+  version="${GITHUB_REF_NAME:?Expected a release tag}"
+  version="${version#v}"
+else
+  version="$(sed -n 's/^version = "\([^"]*\)"$/\1/p' Cargo.toml)"
+fi
 bash .github/scripts/verify-macos-dmg.sh "${dmg_path}" "${arch}" "${version}"
 (
   cd "${output_root}"
