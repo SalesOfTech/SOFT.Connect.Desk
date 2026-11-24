@@ -66,5 +66,10 @@ hdiutil create \
   -ov \
   "${dmg_path}"
 
-shasum -a 256 "${dmg_path}" > "${dmg_path}.sha256"
+version="$(sed -n 's/^version = "\([^"]*\)"$/\1/p' Cargo.toml)"
+bash .github/scripts/verify-macos-dmg.sh "${dmg_path}" "${arch}" "${version}"
+(
+  cd "${output_root}"
+  shasum -a 256 "$(basename "${dmg_path}")" > "$(basename "${dmg_path}").sha256"
+)
 echo "macOS artifact: ${dmg_path}"

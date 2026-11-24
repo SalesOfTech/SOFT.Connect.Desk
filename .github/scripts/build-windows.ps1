@@ -198,6 +198,21 @@ function Build-Role {
             throw "Flutter bundle executable not found: $innerExe"
         }
 
+        $versionMatch = Select-String -LiteralPath (Join-Path $sourceRoot "Cargo.toml") `
+            -Pattern '^version = "([^"]+)"$' | Select-Object -First 1
+        $expectedVersion = $versionMatch.Matches[0].Groups[1].Value
+        $versionOutput = Join-Path $env:RUNNER_TEMP "soft-desk-$RoleName-version.txt"
+        $startup = Start-Process -FilePath $innerExe -ArgumentList "--version" `
+            -WorkingDirectory $bundleRoot -RedirectStandardOutput $versionOutput -PassThru
+        if (-not $startup.WaitForExit(30000)) {
+            $startup.Kill()
+            throw "$RoleName $Architecture bundle did not start within 30 seconds"
+        }
+        if ($startup.ExitCode -ne 0 -or
+            -not (Get-Content -LiteralPath $versionOutput | Where-Object { $_ -ceq $expectedVersion })) {
+            throw "$RoleName $Architecture bundle could not report version $expectedVersion"
+        }
+
         $portableDir = Join-Path $sourceRoot "libs\portable"
         & $python -m pip install --disable-pip-version-check `
             -r (Join-Path $portableDir "requirements.txt")
