@@ -29,8 +29,9 @@ Run **Build SOFT.Connect.Desk** from the Actions tab and select:
 - role: `support`, `operator`, or `all`;
 - platform: `windows`, `linux`, `macos`, or `all`.
 
-Tag builds (`v*`) build both Support and Operator clients. macOS artifacts are ad-hoc signed,
-not notarized, and do not require a paid Apple Developer Program membership.
+Tag builds (`v*`) build both Support and Operator clients. macOS DMGs are ad-hoc
+signed and not notarized. See the [macOS first-launch instructions](docs/release-1.5.3.md#установка-на-macos)
+for the per-app approval when macOS cannot verify the developer.
 
 ## License and upstream
 
