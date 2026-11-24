@@ -31,7 +31,7 @@ main="${app}/Contents/MacOS/${bundle_executable}"
 for binary in "${main}" "${app}/Contents/MacOS/service" \
               "${app}/Contents/Frameworks/libsoftconnectdesk.dylib"; do
   test -f "${binary}"
-  lipo -verify_arch "${architecture}" "${binary}"
+  lipo "${binary}" -verify_arch "${architecture}"
 done
 test -x "${main}"
 test -x "${app}/Contents/MacOS/service"
