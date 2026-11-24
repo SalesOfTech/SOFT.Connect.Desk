@@ -201,16 +201,33 @@ function Build-Role {
         $versionMatch = Select-String -LiteralPath (Join-Path $sourceRoot "Cargo.toml") `
             -Pattern '^version = "([^"]+)"$' | Select-Object -First 1
         $expectedVersion = $versionMatch.Matches[0].Groups[1].Value
-        $versionOutput = Join-Path $env:RUNNER_TEMP "soft-desk-$RoleName-version.txt"
-        $startup = Start-Process -FilePath $innerExe -ArgumentList "--version" `
-            -WorkingDirectory $bundleRoot -RedirectStandardOutput $versionOutput -PassThru
-        if (-not $startup.WaitForExit(30000)) {
-            $startup.Kill()
-            throw "$RoleName $Architecture bundle did not start within 30 seconds"
+        # Start-Process with redirected streams can lose ExitCode on Windows.
+        $startInfo = [System.Diagnostics.ProcessStartInfo]::new($innerExe, "--version")
+        $startInfo.WorkingDirectory = $bundleRoot
+        $startInfo.UseShellExecute = $false
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        $startup = [System.Diagnostics.Process]::Start($startInfo)
+        try {
+            $stdout = $startup.StandardOutput.ReadToEndAsync()
+            $stderr = $startup.StandardError.ReadToEndAsync()
+            if (-not $startup.WaitForExit(30000)) {
+                $startup.Kill()
+                throw "$RoleName $Architecture bundle did not start within 30 seconds"
+            }
+            if (-not ($stdout.Wait(5000) -and $stderr.Wait(5000))) {
+                throw "$RoleName $Architecture bundle did not close its output streams"
+            }
+            $versionOutput = $stdout.GetAwaiter().GetResult()
+            if ($startup.ExitCode -ne 0 -or
+                -not (($versionOutput -split '\r?\n') -ccontains $expectedVersion)) {
+                $errorOutput = $stderr.GetAwaiter().GetResult()
+                throw "$RoleName $Architecture bundle version check failed (exit $($startup.ExitCode), expected $expectedVersion, stdout: [$($versionOutput.Trim())], stderr: [$($errorOutput.Trim())])"
+            }
+            Write-Host "Packaged $RoleName app starts and reports $expectedVersion on Windows $Architecture."
         }
-        if ($startup.ExitCode -ne 0 -or
-            -not (Get-Content -LiteralPath $versionOutput | Where-Object { $_ -ceq $expectedVersion })) {
-            throw "$RoleName $Architecture bundle could not report version $expectedVersion"
+        finally {
+            $startup.Dispose()
         }
 
         $portableDir = Join-Path $sourceRoot "libs\portable"
