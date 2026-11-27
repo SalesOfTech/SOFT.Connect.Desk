@@ -274,6 +274,11 @@ jobs:
         shell: pwsh
         run: .github/scripts/build-windows-msi.ps1 -Role $env:BUILD_ROLE -Platform x64
 
+      - name: Test Windows x64 EXE installation and upgrade
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        run: .github/scripts/test-windows-install.ps1 -Role $env:BUILD_ROLE -Architecture x64
+
       - name: Upload Windows artifacts
         if: github.event_name != 'workflow_dispatch' || inputs.package != 'portable'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -396,6 +401,11 @@ jobs:
       - name: Build Windows ARM64 MSI packages
         shell: pwsh
         run: .github/scripts/build-windows-msi.ps1 -Role $env:BUILD_ROLE -Platform ARM64
+
+      - name: Test Windows ARM64 EXE installation and upgrade
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        run: .github/scripts/test-windows-install.ps1 -Role $env:BUILD_ROLE -Architecture arm64
 
       - name: Upload Windows ARM64 artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

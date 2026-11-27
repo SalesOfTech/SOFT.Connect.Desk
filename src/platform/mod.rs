@@ -40,6 +40,12 @@ use std::sync::{Arc, Mutex};
 // Restrict names because installers interpolate them into privileged scripts and paths.
 #[cfg(any(windows, target_os = "macos"))]
 fn validate_install_app_name(app_name: &str) -> ResultType<()> {
+    // Keep the existing Windows service, install directory and registry IDs.
+    // Only the fixed Desk name may contain periods in elevated batch commands.
+    #[cfg(windows)]
+    if app_name == "SOFT.Connect.Desk" {
+        return Ok(());
+    }
     let mut bytes = app_name.bytes();
     let Some(first) = bytes.next() else {
         hbb_common::bail!("Application name must not be empty.");
@@ -256,12 +262,22 @@ mod tests {
         ] {
             assert!(validate_install_app_name(app_name).is_ok(), "{app_name}");
         }
-        for app_name in ["", "Rust.Desk", "Rust Desk", "RüstDesk", "RustDesk;touch"] {
+        for app_name in [
+            "",
+            "Rust.Desk",
+            "Rust Desk",
+            "RüstDesk",
+            "RustDesk;touch",
+            "SOFT.Connect.Desk&echo",
+        ] {
             assert!(validate_install_app_name(app_name).is_err(), "{app_name}");
         }
 
         #[cfg(windows)]
-        assert!(validate_install_app_name("-RustDesk").is_ok());
+        {
+            assert!(validate_install_app_name("-RustDesk").is_ok());
+            assert!(validate_install_app_name("SOFT.Connect.Desk").is_ok());
+        }
         #[cfg(target_os = "macos")]
         assert!(validate_install_app_name("-RustDesk").is_err());
     }
